@@ -101,20 +101,20 @@ async function feedback(correct){
 @app.post("/predict")
 def predict(q: Query):
     text_norm = q.text.strip()
-    past = memory.get_all(q.user_id)
+    past = memory.get_all(q.user_id)  # your Supabase returns newest first
 
-    # --- PATH 3: LEARNING ---
+    # PATH 3: learn good answers
     learned_answer = None
     feedback_trues = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}" and m["value"].get("correct")]
 
     if feedback_trues:
-        for fb in reversed(feedback_trues):
+        for fb in feedback_trues:  # newest first
             approved = fb["value"].get("approved_claim")
             if approved and not approved.startswith("Simulated future for:"):
                 learned_answer = approved
                 break
         if not learned_answer:
-            preds = [m for m in reversed(past) if m["key"] == text_norm and "claim" in m["value"]]
+            preds = [m for m in past if m["key"] == text_norm and isinstance(m["value"], dict) and "claim" in m["value"]]
             for p in preds:
                 claim = p["value"]["claim"]
                 if not claim.startswith("Simulated future for:"):
@@ -131,7 +131,7 @@ def predict(q: Query):
         feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}"]
         if feedbacks:
             correct = sum(1 for f in feedbacks if f["value"].get("correct"))
-            uncertainty = round(0.7 * (1 - correct/len(feedbacks)) + 0.1, 2)
+            uncertainty = round(0.7 * (1 - correct / len(feedbacks)) + 0.1, 2)
         else:
             uncertainty = 0.7
         source = "world_engine_v1"
@@ -159,10 +159,10 @@ def act(q: Query):
 def give_feedback(fb: Feedback):
     text_norm = fb.text.strip()
     past = memory.get_all(fb.user_id)
-    last_pred = next((m["value"]["claim"] for m in reversed(past) if m["key"] == text_norm and "claim" in m["value"]), None)
+    last_pred = next((m["value"]["claim"] for m in past if m["key"] == text_norm and "claim" in m["value"]), None)
     memory.add(fb.user_id, f"FEEDBACK:{text_norm}", {"correct": fb.correct, "approved_claim": last_pred})
 
-    # --- PATH 4: AUTO-CORRECT ON FALSE ---
+    # PATH 4: auto-correct on FALSE
     correction = None
     if not fb.correct and last_pred:
         new_pred, test_code = world.predict(text_norm)
