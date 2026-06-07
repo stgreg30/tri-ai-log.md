@@ -118,17 +118,32 @@ def predict(q: Query):
         steps = re.split(r'\s+then\s+', q.text, flags=re.IGNORECASE)
         chain_results = []
         last_summary = ""
+        last_url = ""
         for step in steps:
             step_proc = step
-            if 'city mentioned' in step.lower() and last_summary:
-                city = re.search(r'\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\b', last_summary)
+            if 'city mentioned' in step.lower():
+                city = None
+                # 1) pull from Wikipedia URL if we just summarized one
+                if last_url and 'wikipedia.org/wiki/' in last_url:
+                    city = last_url.split('/wiki/')[-1].replace('_',' ')
+                # 2) fallback: find first real proper noun
+                if not city and last_summary:
+                    stop = {'Summary','Wikipedia','Main','Jump','Content','Article'}
+                    for m in re.finditer(r'\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\b', last_summary):
+                        if m.group(1) not in stop:
+                            city = m.group(1); break
                 if city:
-                    step_proc = re.sub(r'city mentioned', city.group(1), step, flags=re.IGNORECASE)
+                    step_proc = re.sub(r'city mentioned', city, step, flags=re.IGNORECASE)
+
             pred, test = world.predict(step_proc.strip())
             if step_proc.lower().startswith('summarize'):
+                url_match = re.search(r'https?://\S+', step_proc)
+                if url_match: last_url = url_match.group(0)
                 last_summary = pred
+
             chain_results.append(f"→ {step_proc}:\n{pred}")
             memory.add(q.user_id, step_proc, {"claim": pred})
+
         final_claim = "\n\n".join(chain_results)
         answer = EpistemicAnswer(claim=final_claim, source="chain", uncertainty=0.2, falsifiable_test="# chain")
         memory.add(q.user_id, text_norm, answer.model_dump())

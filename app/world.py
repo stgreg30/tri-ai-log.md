@@ -52,6 +52,17 @@ class WorldEngine:
         if m := re.search(r'summarize (https?://\S+)', t):
             url = m.group(1)
             try:
+                # SPECIAL CASE: Wikipedia → use clean API
+                if 'wikipedia.org/wiki/' in url:
+                    title = url.split('/wiki/')[-1].split('#')[0].split('?')[0]
+                    api = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
+                    r = httpx.get(api, headers=HEADERS, timeout=8.0)
+                    if r.status_code == 200:
+                        summary = r.json().get('extract','')[:400]
+                        test = f"r=httpx.get('{api}',headers={{'User-Agent':'Mozilla/5.0'}}); print(r.json().get('extract','')[:400])"
+                        return f"Summary: {summary}", test
+
+                # GENERIC fallback
                 r = httpx.get(url, headers=HEADERS, timeout=10.0, follow_redirects=True)
                 html = r.text
                 html = re.sub(r'<script.*?</script>', ' ', html, flags=re.DOTALL|re.IGNORECASE)
