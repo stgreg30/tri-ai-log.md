@@ -5,27 +5,54 @@ import re
 
 class WorldEngine:
     def predict(self, text: str) -> tuple[str, str]:
-        # returns (prediction, suggested_test_code)
         clean = text.strip()
-        lowered = clean.lower().replace("what is", "").strip()
-        
-        # if it looks like simple math, solve it
-        if re.match(r'^[0-9+\-*/().\s]+$', lowered) and lowered:
+        t = clean.lower()
+
+        # 1. MATH - "what is 7*7" or "12*12"
+        m = re.search(r'what is ([\d+\-*/().\s]+)', t)
+        expr = m.group(1) if m else t
+        if re.match(r'^[\d+\-*/().\s]+$', expr) and expr.strip():
             try:
-                result = eval(lowered, {"__builtins__": {}}, {})
-                prediction = str(result)
-                test_code = f"print({lowered})"
-                return prediction, test_code
+                result = eval(expr, {"__builtins__": {}}, {})
+                return str(result), f"print({expr})"
             except:
                 pass
-        
-        # fallback for everything else
-        prediction = f"Simulated future for: {clean}"
-        test_code = "# no auto test"
-        return prediction, test_code
+
+        # 2. REVERSE - "reverse hello"
+        m = re.search(r'reverse (.+)', t)
+        if m:
+            s = m.group(1).strip()
+            # escape quotes for safe code
+            safe = s.replace("'", "\\'")
+            return s[::-1], f"print('{safe}'[::-1])"
+
+        # 3. UPPERCASE - "uppercase ash"
+        m = re.search(r'uppercase (.+)', t)
+        if m:
+            s = m.group(1).strip()
+            safe = s.replace("'", "\\'")
+            return s.upper(), f"print('{safe}'.upper())"
+
+        # 4. LOWERCASE - "lowercase ASH"
+        m = re.search(r'lowercase (.+)', t)
+        if m:
+            s = m.group(1).strip()
+            safe = s.replace("'", "\\'")
+            return s.lower(), f"print('{safe}'.lower())"
+
+        # 5. LENGTH - "how many letters in banana" or "length of banana"
+        m = re.search(r'(how many letters in|length of) (.+)', t)
+        if m:
+            s = m.group(2).strip()
+            safe = s.replace("'", "\\'")
+            count = len(s.replace(' ', ''))
+            return str(count), f"print(len('{safe}'.replace(' ','')))"
+
+        # fallback - your original
+        return f"Simulated future for: {clean}", "# no auto test"
 
     def act(self, text: str) -> str:
-        # SAFE PYTHON SANDBOX
+        # YOUR SAFE SANDBOX - unchanged
         code = text.strip()
         output = io.StringIO()
         
