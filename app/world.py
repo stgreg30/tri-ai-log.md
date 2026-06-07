@@ -7,14 +7,14 @@ class WorldEngine:
         clean = text.strip()
         t = clean.lower()
 
-        # math
+        # --- math ---
         if m := re.search(r'what is ([\d+\-*/().\s]+)', t):
             expr = m.group(1)
             if re.match(r'^[\d+\-*/().\s]+$', expr):
                 try: return str(eval(expr, {"__builtins__":{}})), f"print({expr})"
                 except: pass
 
-        # string ops
+        # --- string ops ---
         if m := re.search(r'reverse (.+)', t):
             s = m.group(1).strip(); safe = s.replace("'", "\\'")
             return s[::-1], f"print('{safe}'[::-1])"
@@ -28,7 +28,21 @@ class WorldEngine:
             s = m.group(1).strip(); safe = s.replace("'", "\\'")
             return str(len(s.replace(' ',''))), f"print(len('{safe}'.replace(' ','')))"
 
-        # web
+        # --- NEW SKILL: summarize URL ---
+        if m := re.search(r'summarize (https?://\S+)', t):
+            url = m.group(1)
+            try:
+                r = httpx.get(url, headers=HEADERS, timeout=10.0, follow_redirects=True)
+                # strip HTML tags
+                text_only = re.sub(r'<[^>]+>', ' ', r.text)
+                summary = ' '.join(text_only.split())[:300]
+                # test code that reproduces it
+                test = f"import httpx,re; r=httpx.get('{url}',headers={{'User-Agent':'Mozilla/5.0'}}); t=re.sub(r'<[^>]+>',' ',r.text); print(' '.join(t.split())[:300])"
+                return f"Summary: {summary}...", test
+            except Exception:
+                return f"Failed to fetch {url}", "# fetch failed"
+
+        # --- web (Wikipedia) ---
         if t.startswith(("what is ","who is ","where is ","when is ")) or "capital of" in t:
             q = re.sub(r'^(what|who|where|when) is ', '', t)
             if "capital of" in t:
@@ -56,6 +70,7 @@ class WorldEngine:
         safe = {'print':print,'range':range,'len':len,'sum':sum,'min':min,'max':max,'abs':abs,'round':round,'str':str,'int':int,'float':float,'list':list,'dict':dict}
         try:
             with contextlib.redirect_stdout(out):
-                exec(text, {'__builtins__':safe,'httpx':httpx}, {})
+                exec(text, {'__builtins__':safe,'httpx':httpx,'re':re}, {})
             return out.getvalue() or "code ran with no output"
-        except: return "Error:\n"+traceback.format_exc()[-300:]
+        except:
+            return "Error:\n"+traceback.format_exc()[-300:]
