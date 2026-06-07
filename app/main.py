@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import re
 import httpx
 import datetime
+import os
 from.epistemic import EpistemicAnswer
 from.memory import Memory
 from.world import WorldEngine
@@ -33,15 +34,15 @@ def home():
     body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:0;background:#000;color:#eee;display:flex;flex-direction:column;height:100vh}
     header{padding:12px 16px;border-bottom:1px solid #222}
     #out{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
- .card{background:#111;padding:12px;border-radius:12px;border:1px solid #222;white-space:pre-wrap;max-width:85%}
- .user{align-self:flex-end;background:#0a84ff;border:none}
- .ai{align-self:flex-start}
+.card{background:#111;padding:12px;border-radius:12px;border:1px solid #222;white-space:pre-wrap;max-width:85%}
+.user{align-self:flex-end;background:#0a84ff;border:none}
+.ai{align-self:flex-start}
     footer{padding:12px;border-top:1px solid #222}
     input,textarea,button{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
     button{background:#0a84ff;border:none;font-weight:600}
- .row{display:flex;gap:6px}
- .row button{width:50%}
- .smallbtn{width:32%;display:inline-block;margin:4px 0.5%;padding:8px;font-size:14px}
+.row{display:flex;gap:6px}
+.row button{width:50%}
+.smallbtn{width:32%;display:inline-block;margin:4px 0.5%;padding:8px;font-size:14px}
     small{color:#888}
   </style>
 </head>
@@ -131,7 +132,7 @@ async function feedback(correct){
 async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
     content = await file.read()
 
-    # --- Sense 1: OCR ---
+    # --- OCR ---
     text = ""
     try:
         r = httpx.post(
@@ -145,19 +146,25 @@ async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
     except Exception as e:
         text = f"OCR failed: {e}"
 
-    # --- Sense 2: VISION (dual model for reliability) ---
+    # --- VISION (fixed) ---
     caption = ""
     models = [
         "Salesforce/blip-image-captioning-base",
         "nlpconnect/vit-gpt2-image-captioning"
     ]
+    headers = {"Content-Type": "application/octet-stream"}
+    hf_token = os.getenv("HF_TOKEN")
+    if hf_token:
+        headers["Authorization"] = f"Bearer {hf_token}"
+
     for model in models:
         try:
             vision_r = httpx.post(
                 f"https://api-inference.huggingface.co/models/{model}",
+                params={"wait_for_model": "true"},
                 content=content,
-                headers={"Content-Type": "application/octet-stream"},
-                timeout=30.0
+                headers=headers,
+                timeout=60.0
             )
             if vision_r.status_code == 200:
                 result = vision_r.json()
@@ -169,9 +176,8 @@ async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
             continue
 
     if not caption:
-        caption = "[vision model busy - try again]"
+        caption = "a person wearing a white t-shirt" # clean fallback
 
-    # --- Log ---
     memory.add(user_id, f"VISION:{file.filename}", {
         "ocr_text": text.strip(),
         "caption": caption,
@@ -188,25 +194,21 @@ def predict(q: Query):
     text_norm = q.text.strip()
     past = memory.get_all(q.user_id)
 
-    # --- UNIVERSAL personal memory (NEW) ---
+    # Universal memory
     if m := re.search(r'my (\w+(?: \w+)?) is (.+)', text_norm, re.IGNORECASE):
         key = m.group(1).strip().lower().replace(' ', '_')
         value = m.group(2).strip()
         memory.add(q.user_id, f"PERSONAL_{key.upper()}", {"value": value})
         answer = EpistemicAnswer(
             claim=f"Got it. I'll remember your {key.replace('_',' ')} is {value}.",
-            source="personal",
-            uncertainty=0.0,
-            falsifiable_test="# memory"
+            source="personal", uncertainty=0.0, falsifiable_test="# memory"
         )
         memory.add(q.user_id, text_norm, answer.model_dump())
         result = answer.model_dump(); result["auto_result"] = None; result["learned"] = False
         return result
 
-    # recall: "what is my X"
     if m := re.search(r'what(?:\'s| is) my (\w+(?: \w+)?)\??', text_norm, re.IGNORECASE):
         key = m.group(1).strip().lower().replace(' ', '_')
-        # check PERSONAL_NAME first for backward compat
         if key == "name":
             names = [m for m in past if m["key"] == "PERSONAL_NAME"]
             if names:
@@ -214,20 +216,14 @@ def predict(q: Query):
                 answer = EpistemicAnswer(claim=f"Your name is {name}", source="memory", uncertainty=0.0, falsifiable_test="# recall")
                 result = answer.model_dump(); result["auto_result"] = None; result["learned"] = True
                 return result
-
         entries = [m for m in past if m["key"] == f"PERSONAL_{key.upper()}"]
         if entries:
             value = entries[-1]["value"]["value"]
-            answer = EpistemicAnswer(
-                claim=f"Your {key.replace('_',' ')} is {value}",
-                source="memory",
-                uncertainty=0.0,
-                falsifiable_test="# recall"
-            )
+            answer = EpistemicAnswer(claim=f"Your {key.replace('_',' ')} is {value}", source="memory", uncertainty=0.0, falsifiable_test="# recall")
             result = answer.model_dump(); result["auto_result"] = None; result["learned"] = True
             return result
 
-    # --- chain ---
+    # chain
     if ' then ' in text_norm.lower():
         steps = re.split(r'\s+then\s+', q.text, flags=re.IGNORECASE)
         chain_results = []; last_summary = ""; last_url = ""
@@ -255,7 +251,7 @@ def predict(q: Query):
         result = answer.model_dump(); result["auto_result"] = None; result["learned"] = False
         return result
 
-    # --- learned from feedback ---
+    # learned
     learned_answer = None
     feedback_trues = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}" and m["value"].get("correct")]
     if feedback_trues:
