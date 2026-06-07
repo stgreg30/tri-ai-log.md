@@ -30,8 +30,8 @@ def home():
     body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:16px;background:#000;color:#eee}
     input,textarea,button{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
     button{background:#0a84ff;border:none;font-weight:600}
-    .smallbtn{width:48%;display:inline-block;margin:4px 1%}
-    .card{background:#111;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #222}
+    .smallbtn{width:32%;display:inline-block;margin:4px 0.5%}
+    .card{background:#111;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #222;white-space:pre-wrap}
     small{color:#888}
   </style>
 </head>
@@ -46,13 +46,15 @@ def home():
   <div id="out"></div>
 <script>
 let lastPrediction = "";
+let lastTest = "";
 async function predict(){
   const uid=document.getElementById('uid').value;
   const txt=document.getElementById('txt').value;
   lastPrediction = txt.trim();
   const r=await fetch('/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
-  const card = `<div class=card><b>Prediction</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small><br><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
+  lastTest = j.falsifiable_test;
+  const card = `<div class=card><b>Prediction</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small><br><button class=smallbtn onclick="runTest()">Run Test</button><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
   document.getElementById('out').innerHTML = card + document.getElementById('out').innerHTML;
 }
 async function act(){
@@ -61,6 +63,12 @@ async function act(){
   const r=await fetch('/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
   document.getElementById('out').innerHTML='<div class=card><b>Action</b><br>'+j.result+'</div>'+document.getElementById('out').innerHTML;
+}
+async function runTest(){
+  const uid=document.getElementById('uid').value;
+  const r=await fetch('/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:lastTest,user_id:uid})});
+  const j=await r.json();
+  document.getElementById('out').innerHTML='<div class=card><b>Test Result</b><br>'+j.result+'</div>'+document.getElementById('out').innerHTML;
 }
 async function showMemory(){
   const uid=document.getElementById('uid').value;
@@ -83,13 +91,8 @@ async function feedback(correct){
 
 @app.post("/predict")
 def predict(q: Query):
-    # 1. normalize input
     text_norm = q.text.strip()
-    
-    # 2. predict next state and get suggested test
     prediction, test_code = world.predict(text_norm)
-    
-    # 3. learn uncertainty from past feedback
     past = memory.get_all(q.user_id)
     feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}"]
     if feedbacks:
@@ -99,15 +102,12 @@ def predict(q: Query):
         uncertainty = round(0.7 * (1 - accuracy) + 0.1, 2)
     else:
         uncertainty = 0.7
-
-    # 4. wrap in epistemic layer
     answer = EpistemicAnswer(
         claim=prediction,
         source="world_engine_v1",
         uncertainty=uncertainty,
         falsifiable_test=test_code
     )
-    # 5. store in memory
     memory.add(q.user_id, text_norm, answer.model_dump())
     return answer
 
