@@ -33,11 +33,10 @@ class WorldEngine:
             url = m.group(1)
             try:
                 r = httpx.get(url, headers=HEADERS, timeout=10.0, follow_redirects=True)
-                # strip HTML tags
                 text_only = re.sub(r'<[^>]+>', ' ', r.text)
                 summary = ' '.join(text_only.split())[:300]
-                # test code that reproduces it
-                test = f"import httpx,re; r=httpx.get('{url}',headers={{'User-Agent':'Mozilla/5.0'}}); t=re.sub(r'<[^>]+>',' ',r.text); print(' '.join(t.split())[:300])"
+                # NO import here - we use the globals passed to act()
+                test = f"r=httpx.get('{url}',headers={{'User-Agent':'Mozilla/5.0'}}); t=re.sub(r'<[^>]+>',' ',r.text); print(' '.join(t.split())[:300])"
                 return f"Summary: {summary}...", test
             except Exception:
                 return f"Failed to fetch {url}", "# fetch failed"
