@@ -85,14 +85,27 @@ async function feedback(correct){
 def predict(q: Query):
     # 1. predict next state
     prediction = world.predict(q.text)
-    # 2. wrap in epistemic layer
+    
+    # 2. learn uncertainty from past feedback
+    past = memory.get_all(q.user_id)
+    feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{q.text}"]
+    if feedbacks:
+        correct = sum(1 for f in feedbacks if f["value"].get("correct"))
+        total = len(feedbacks)
+        accuracy = correct / total
+        # start at 0.7, move toward 0.1 as accuracy rises
+        uncertainty = round(0.7 * (1 - accuracy) + 0.1, 2)
+    else:
+        uncertainty = 0.7
+
+    # 3. wrap in epistemic layer
     answer = EpistemicAnswer(
         claim=prediction,
         source="world_engine_stub",
-        uncertainty=0.7,
+        uncertainty=uncertainty,
         falsifiable_test=f"Check if '{prediction}' holds in real world"
     )
-    # 3. store in memory
+    # 4. store in memory
     memory.add(q.user_id, q.text, answer.model_dump())
     return answer
 
