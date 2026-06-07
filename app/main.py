@@ -83,8 +83,15 @@ async function showMemory(){
 }
 async function feedback(correct){
   const uid=document.getElementById('uid').value;
-  await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:lastPrediction,user_id:uid,correct:correct})});
-  document.getElementById('out').innerHTML='<div class=card><small>Feedback saved: '+ (correct?'TRUE':'FALSE') +' for "'+lastPrediction+'"</small></div>'+document.getElementById('out').innerHTML;
+  const r = await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:lastPrediction,user_id:uid,correct:correct})});
+  const j = await r.json();
+  let html = '<div class=card><small>Feedback saved: '+ (correct?'TRUE':'FALSE') +' for "'+lastPrediction+'"</small>';
+  if(j.correction){
+    html += '<br><b style="color:#0f0">Auto-correction:</b> '+ j.correction.claim;
+    if(j.correction.auto_result) html += '<br><small>verified: '+ j.correction.auto_result.slice(0,120) +'</small>';
+  }
+  html += '</div>';
+  document.getElementById('out').innerHTML = html + document.getElementById('out').innerHTML;
 }
 </script>
 </body>
@@ -96,18 +103,16 @@ def predict(q: Query):
     text_norm = q.text.strip()
     past = memory.get_all(q.user_id)
 
-    # --- PATH 3: LEARNING (only good answers) ---
+    # --- PATH 3: LEARNING ---
     learned_answer = None
     feedback_trues = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}" and m["value"].get("correct")]
 
     if feedback_trues:
-        # Prefer the claim you explicitly approved
         for fb in reversed(feedback_trues):
             approved = fb["value"].get("approved_claim")
             if approved and not approved.startswith("Simulated future for:"):
                 learned_answer = approved
                 break
-        # Fallback for old feedback without approved_claim
         if not learned_answer:
             preds = [m for m in reversed(past) if m["key"] == text_norm and "claim" in m["value"]]
             for p in preds:
@@ -131,15 +136,9 @@ def predict(q: Query):
             uncertainty = 0.7
         source = "world_engine_v1"
 
-    answer = EpistemicAnswer(
-        claim=prediction,
-        source=source,
-        uncertainty=uncertainty,
-        falsifiable_test=test_code
-    )
+    answer = EpistemicAnswer(claim=prediction, source=source, uncertainty=uncertainty, falsifiable_test=test_code)
     memory.add(q.user_id, text_norm, answer.model_dump())
 
-    # PATH 1: auto-run test
     auto_result = None
     if test_code and not test_code.startswith("#"):
         auto_result = world.act(test_code)
@@ -158,11 +157,25 @@ def act(q: Query):
 
 @app.post("/feedback")
 def give_feedback(fb: Feedback):
-    # store which exact prediction you approved
+    text_norm = fb.text.strip()
     past = memory.get_all(fb.user_id)
-    last_pred = next((m["value"]["claim"] for m in reversed(past) if m["key"] == fb.text.strip() and "claim" in m["value"]), None)
-    memory.add(fb.user_id, f"FEEDBACK:{fb.text.strip()}", {"correct": fb.correct, "approved_claim": last_pred})
-    return {"status": "saved"}
+    last_pred = next((m["value"]["claim"] for m in reversed(past) if m["key"] == text_norm and "claim" in m["value"]), None)
+    memory.add(fb.user_id, f"FEEDBACK:{text_norm}", {"correct": fb.correct, "approved_claim": last_pred})
+
+    # --- PATH 4: AUTO-CORRECT ON FALSE ---
+    correction = None
+    if not fb.correct and last_pred:
+        new_pred, test_code = world.predict(text_norm)
+        if new_pred != last_pred and not new_pred.startswith("Simulated future for:"):
+            corr = EpistemicAnswer(claim=new_pred, source="auto_correction", uncertainty=0.5, falsifiable_test=test_code)
+            memory.add(fb.user_id, text_norm, corr.model_dump())
+            auto_res = None
+            if test_code and not test_code.startswith("#"):
+                auto_res = world.act(test_code)
+                memory.add(fb.user_id, f"ACT:{test_code[:80]}", {"result": auto_res})
+            correction = {"claim": new_pred, "auto_result": auto_res}
+
+    return {"status": "saved", "correction": correction}
 
 @app.get("/memory/{user_id}")
 def get_memory(user_id: str):
