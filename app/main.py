@@ -49,7 +49,7 @@ let lastPrediction = "";
 async function predict(){
   const uid=document.getElementById('uid').value;
   const txt=document.getElementById('txt').value;
-  lastPrediction = txt;
+  lastPrediction = txt.trim();
   const r=await fetch('/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
   const card = `<div class=card><b>Prediction</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small><br><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
@@ -83,41 +83,44 @@ async function feedback(correct){
 
 @app.post("/predict")
 def predict(q: Query):
-    # 1. predict next state
-    prediction = world.predict(q.text)
+    # 1. normalize input
+    text_norm = q.text.strip()
     
-    # 2. learn uncertainty from past feedback
+    # 2. predict next state and get suggested test
+    prediction, test_code = world.predict(text_norm)
+    
+    # 3. learn uncertainty from past feedback
     past = memory.get_all(q.user_id)
-    feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{q.text}"]
+    feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}"]
     if feedbacks:
         correct = sum(1 for f in feedbacks if f["value"].get("correct"))
         total = len(feedbacks)
         accuracy = correct / total
-        # start at 0.7, move toward 0.1 as accuracy rises
         uncertainty = round(0.7 * (1 - accuracy) + 0.1, 2)
     else:
         uncertainty = 0.7
 
-    # 3. wrap in epistemic layer
+    # 4. wrap in epistemic layer
     answer = EpistemicAnswer(
         claim=prediction,
-        source="world_engine_stub",
+        source="world_engine_v1",
         uncertainty=uncertainty,
-        falsifiable_test=f"Check if '{prediction}' holds in real world"
+        falsifiable_test=test_code
     )
-    # 4. store in memory
-    memory.add(q.user_id, q.text, answer.model_dump())
+    # 5. store in memory
+    memory.add(q.user_id, text_norm, answer.model_dump())
     return answer
 
 @app.post("/act")
 def act(q: Query):
     result = world.act(q.text)
-    memory.add(q.user_id, f"ACT:{q.text}", {"result": result})
+    memory.add(q.user_id, f"ACT:{q.text.strip()}", {"result": result})
     return {"result": result}
 
 @app.post("/feedback")
 def give_feedback(fb: Feedback):
-    memory.add(fb.user_id, f"FEEDBACK:{fb.text}", {"correct": fb.correct})
+    text_norm = fb.text.strip()
+    memory.add(fb.user_id, f"FEEDBACK:{text_norm}", {"correct": fb.correct})
     return {"status": "saved", "correct": fb.correct}
 
 @app.get("/memory/{user_id}")

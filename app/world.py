@@ -1,19 +1,34 @@
 import io
 import contextlib
 import traceback
+import re
 
 class WorldEngine:
-    def predict(self, text: str) -> str:
-        # keep prediction simple for now
-        return f"Simulated future for: {text.strip()}"
+    def predict(self, text: str) -> tuple[str, str]:
+        # returns (prediction, suggested_test_code)
+        clean = text.strip()
+        lowered = clean.lower().replace("what is", "").strip()
+        
+        # if it looks like simple math, solve it
+        if re.match(r'^[0-9+\-*/().\s]+$', lowered) and lowered:
+            try:
+                result = eval(lowered, {"__builtins__": {}}, {})
+                prediction = str(result)
+                test_code = f"print({lowered})"
+                return prediction, test_code
+            except:
+                pass
+        
+        # fallback for everything else
+        prediction = f"Simulated future for: {clean}"
+        test_code = "# no auto test"
+        return prediction, test_code
 
     def act(self, text: str) -> str:
         # SAFE PYTHON SANDBOX
-        # Only allows basic operations, blocks imports and file access
         code = text.strip()
         output = io.StringIO()
         
-        # very restricted builtins
         safe_builtins = {
             'print': print,
             'range': range,
@@ -38,4 +53,4 @@ class WorldEngine:
             result = output.getvalue()
             return result if result else "code ran with no output"
         except Exception:
-            return "Error:\n" + traceback.format_exc()[-300:]  # last 300 chars
+            return "Error:\n" + traceback.format_exc()[-300:]
