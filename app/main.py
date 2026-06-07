@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from.epistemic import EpistemicAnswer
-from.memory import Memory
-from.world import WorldEngine
+from .epistemic import EpistemicAnswer
+from .memory import Memory
+from .world import WorldEngine
 
 app = FastAPI(title="Worlds Best AI Skeleton")
 memory = Memory()
@@ -96,14 +96,25 @@ def predict(q: Query):
     text_norm = q.text.strip()
     past = memory.get_all(q.user_id)
 
-    # --- PATH 3: LEARNING ---
-    feedback_trues = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}" and m["value"].get("correct") is True]
+    # --- PATH 3: LEARNING (only good answers) ---
     learned_answer = None
+    feedback_trues = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}" and m["value"].get("correct")]
+
     if feedback_trues:
-        # find last good prediction
-        preds = [m for m in past if m["key"] == text_norm and isinstance(m["value"], dict) and "claim" in m["value"]]
-        if preds:
-            learned_answer = preds[-1]["value"]["claim"]
+        # Prefer the claim you explicitly approved
+        for fb in reversed(feedback_trues):
+            approved = fb["value"].get("approved_claim")
+            if approved and not approved.startswith("Simulated future for:"):
+                learned_answer = approved
+                break
+        # Fallback for old feedback without approved_claim
+        if not learned_answer:
+            preds = [m for m in reversed(past) if m["key"] == text_norm and "claim" in m["value"]]
+            for p in preds:
+                claim = p["value"]["claim"]
+                if not claim.startswith("Simulated future for:"):
+                    learned_answer = claim
+                    break
 
     if learned_answer:
         prediction = learned_answer
@@ -112,12 +123,10 @@ def predict(q: Query):
         source = "learned_memory"
     else:
         prediction, test_code = world.predict(text_norm)
-        # uncertainty from feedback history
         feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}"]
         if feedbacks:
             correct = sum(1 for f in feedbacks if f["value"].get("correct"))
-            accuracy = correct / len(feedbacks)
-            uncertainty = round(0.7 * (1 - accuracy) + 0.1, 2)
+            uncertainty = round(0.7 * (1 - correct/len(feedbacks)) + 0.1, 2)
         else:
             uncertainty = 0.7
         source = "world_engine_v1"
@@ -130,9 +139,9 @@ def predict(q: Query):
     )
     memory.add(q.user_id, text_norm, answer.model_dump())
 
-    # PATH 1: auto-run
+    # PATH 1: auto-run test
     auto_result = None
-    if test_code and not test_code.strip().startswith("#"):
+    if test_code and not test_code.startswith("#"):
         auto_result = world.act(test_code)
         memory.add(q.user_id, f"ACT:{test_code[:80]}", {"result": auto_result})
 
@@ -149,9 +158,11 @@ def act(q: Query):
 
 @app.post("/feedback")
 def give_feedback(fb: Feedback):
-    text_norm = fb.text.strip()
-    memory.add(fb.user_id, f"FEEDBACK:{text_norm}", {"correct": fb.correct})
-    return {"status": "saved", "correct": fb.correct}
+    # store which exact prediction you approved
+    past = memory.get_all(fb.user_id)
+    last_pred = next((m["value"]["claim"] for m in reversed(past) if m["key"] == fb.text.strip() and "claim" in m["value"]), None)
+    memory.add(fb.user_id, f"FEEDBACK:{fb.text.strip()}", {"correct": fb.correct, "approved_claim": last_pred})
+    return {"status": "saved"}
 
 @app.get("/memory/{user_id}")
 def get_memory(user_id: str):
