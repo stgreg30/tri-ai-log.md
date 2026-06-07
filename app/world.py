@@ -7,6 +7,14 @@ class WorldEngine:
         clean = text.strip()
         t = clean.lower()
 
+        # --- NEW: flashcard learning from images ---
+        if m := re.search(r'([A-Z]{2,}|[A-Z][a-z]+(?:\s[A-Z][a-z]+)?) is the capital of ([A-Za-z\s]+?)(?:\.|$)', clean, re.IGNORECASE):
+            city = m.group(1).strip().title()
+            country = m.group(2).strip().rstrip('.')
+            ans = f"{city} is the capital of {country}"
+            test = f"print('{ans}')"
+            return ans, test
+
         # --- math ---
         if m := re.search(r'what is ([\d+\-*/().\s]+)', t):
             expr = m.group(1)
@@ -22,7 +30,7 @@ class WorldEngine:
             test = f"p={p}; r={rate}; y={y}; print(f'{{p}} at {m.group(2)}% for {{y:g}} years = {{p*(1+r)**y:,.2f}}')"
             return ans, test
 
-        # --- SKILL 2: weather (CLEAN) ---
+        # --- weather ---
         if m := re.search(r'weather in ([a-zA-Z\s]+)', t):
             city = m.group(1).strip().title()
             try:
@@ -48,11 +56,10 @@ class WorldEngine:
             s = m.group(1).strip(); safe = s.replace("'", "\\'")
             return str(len(s.replace(' ',''))), f"print(len('{safe}'.replace(' ','')))"
 
-        # --- clean summarizer ---
+        # --- summarizer ---
         if m := re.search(r'summarize (https?://\S+)', t):
             url = m.group(1)
             try:
-                # SPECIAL CASE: Wikipedia → use clean API
                 if 'wikipedia.org/wiki/' in url:
                     title = url.split('/wiki/')[-1].split('#')[0].split('?')[0]
                     api = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
@@ -61,8 +68,6 @@ class WorldEngine:
                         summary = r.json().get('extract','')[:400]
                         test = f"r=httpx.get('{api}',headers={{'User-Agent':'Mozilla/5.0'}}); print(r.json().get('extract','')[:400])"
                         return f"Summary: {summary}", test
-
-                # GENERIC fallback
                 r = httpx.get(url, headers=HEADERS, timeout=10.0, follow_redirects=True)
                 html = r.text
                 html = re.sub(r'<script.*?</script>', ' ', html, flags=re.DOTALL|re.IGNORECASE)
@@ -73,16 +78,18 @@ class WorldEngine:
                 sentences = re.split(r'(?<=[.!?])\s+', text_only)
                 summary = ' '.join(sentences[:3])[:400]
                 if not summary: summary = text_only[:300]
-                test = f"r=httpx.get('{url}',headers={{'User-Agent':'Mozilla/5.0'}}); h=r.text; h=__import__('re').sub(r'<script.*?</script>',' ',h,flags=__import__('re').DOTALL|__import__('re').IGNORECASE); h=__import__('re').sub(r'<style.*?</style>',' ',h,flags=__import__('re').DOTALL|__import__('re').IGNORECASE); t=__import__('re').sub(r'<[^>]+>',' ',h); t=' '.join(t.split()); s=__import__('re').split(r'(?<=[.!?])\\s+',t); print(' '.join(s[:3])[:400])"
-                return f"Summary: {summary}", test
+                return f"Summary: {summary}", "# generic summary"
             except Exception:
                 return f"Failed to fetch {url}", "# fetch failed"
 
-        # --- web (Wikipedia) ---
+        # --- web (Wikipedia) - FIXED ---
         if t.startswith(("what is ","who is ","where is ","when is ")) or "capital of" in t:
             q = re.sub(r'^(what|who|where|when) is ', '', t)
             if "capital of" in t:
-                q = "capital of " + t.split("capital of")[-1].strip()
+                # extract only the country name, stop at punctuation
+                if m := re.search(r'capital of ([a-z\s]+)', t):
+                    country = m.group(1).strip().split('.')[0].split(',')[0].strip()
+                    q = f"capital of {country}"
             try:
                 sr = httpx.get("https://en.wikipedia.org/w/api.php",
                     params={"action":"query","list":"search","srsearch":q,"format":"json"},
