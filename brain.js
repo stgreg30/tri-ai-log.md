@@ -1,22 +1,26 @@
 const fs = require("fs");
 
 // =========================
-// EMERGENT BRAIN v0.2 + MEMORY SYSTEM
+// EMERGENT BRAIN v0.2 (STABLE)
 // =========================
 
 const NODE_COUNT = 20;
 const CONNECTIONS_PER_NODE = 4;
 const LEARNING_RATE = 0.005;
-const DECAY = 0.997; // slightly more stable than before
+const DECAY = 0.997;
+
 const TICK_INTERVAL = 200;
 const STIMULUS_INTERVAL = 25;
 
 const MEMORY_FILE = "memory_log.json";
-const MAX_MEMORY_ENTRIES = 500; // prevents file from growing forever
+const MAX_MEMORY_ENTRIES = 500;
 
-// -------------------------
-// SAFE MEMORY SYSTEM
-// -------------------------
+// =========================
+// MEMORY CACHE (IMPORTANT FIX)
+// =========================
+let memoryCache = [];
+
+// load once at startup
 function loadMemory() {
   try {
     if (!fs.existsSync(MEMORY_FILE)) return [];
@@ -27,26 +31,27 @@ function loadMemory() {
   }
 }
 
+// initialize memory in RAM
+memoryCache = loadMemory();
+
+// optimized save (NO re-reading file every tick)
 function saveMemory(entry) {
-  const log = loadMemory();
+  memoryCache.push(entry);
 
-  log.push(entry);
-
-  // prevent infinite file growth
-  if (log.length > MAX_MEMORY_ENTRIES) {
-    log.splice(0, log.length - MAX_MEMORY_ENTRIES);
+  if (memoryCache.length > MAX_MEMORY_ENTRIES) {
+    memoryCache.splice(0, memoryCache.length - MAX_MEMORY_ENTRIES);
   }
 
   try {
-    fs.writeFileSync(MEMORY_FILE, JSON.stringify(log, null, 2));
+    fs.writeFileSync(MEMORY_FILE, JSON.stringify(memoryCache, null, 2));
   } catch (err) {
     console.error("Memory save failed:", err.message);
   }
 }
 
-// -------------------------
+// =========================
 // NODE CLASS
-// -------------------------
+// =========================
 class Node {
   constructor(id) {
     this.id = id;
@@ -67,35 +72,31 @@ class Node {
   }
 
   update(nodes) {
-    const input_sum = this.computeInput(nodes);
+    const inputSum = this.computeInput(nodes);
 
-    // memory blend (short-term memory)
-    this.state = (0.88 * this.state) + (0.12 * input_sum);
+    // smoother memory blending (more stable brain)
+    this.state = this.state * 0.9 + inputSum * 0.1;
 
-    // output activation
     this.output = Math.tanh(this.state);
-
     this.activity = Math.abs(this.output);
 
-    // learning rule (simple Hebbian-style)
     for (const conn of this.inputs) {
       const pre = nodes[conn.from].output;
       const post = this.output;
 
       conn.weight += LEARNING_RATE * pre * post;
 
-      // clamp
-      conn.weight = Math.max(-1.5, Math.min(1.5, conn.weight));
+      // stable clamp
+      conn.weight = Math.max(-1.2, Math.min(1.2, conn.weight));
 
-      // decay
       conn.weight *= DECAY;
     }
   }
 }
 
-// -------------------------
+// =========================
 // NETWORK CREATION
-// -------------------------
+// =========================
 function createNetwork() {
   const nodes = [];
 
@@ -105,10 +106,8 @@ function createNetwork() {
 
   for (const node of nodes) {
     for (let i = 0; i < CONNECTIONS_PER_NODE; i++) {
-      const target = Math.floor(Math.random() * NODE_COUNT);
-
       node.inputs.push({
-        from: target,
+        from: Math.floor(Math.random() * NODE_COUNT),
         weight: Math.random() * 2 - 1
       });
     }
@@ -117,19 +116,19 @@ function createNetwork() {
   return nodes;
 }
 
-// -------------------------
-// STIMULUS (external input)
-// -------------------------
+// =========================
+// STIMULUS
+// =========================
 function stimulate(nodes, tick) {
   if (tick % STIMULUS_INTERVAL === 0) {
     const target = Math.floor(Math.random() * NODE_COUNT);
-    nodes[target].state += (Math.random() - 0.5) * 0.8;
+    nodes[target].state += (Math.random() - 0.5) * 0.6;
   }
 }
 
-// -------------------------
+// =========================
 // RUN ENGINE
-// -------------------------
+// =========================
 const nodes = createNetwork();
 let tick = 0;
 
@@ -151,17 +150,18 @@ function runStep() {
   avgState /= NODE_COUNT;
   avgActivity /= NODE_COUNT;
 
-  // -------------------------
-  // MEMORY WRITE (optimized)
-  // -------------------------
+  // memory write (throttled)
   if (tick % 10 === 0) {
     saveMemory({
       tick,
       avgState,
       avgActivity,
       activityLevel:
-        avgActivity > 0.2 ? "high" :
-        avgActivity > 0.05 ? "medium" : "low",
+        avgActivity > 0.2
+          ? "high"
+          : avgActivity > 0.05
+          ? "medium"
+          : "low",
       timestamp: Date.now()
     });
   }
