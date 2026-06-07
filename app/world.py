@@ -28,17 +28,28 @@ class WorldEngine:
             s = m.group(1).strip(); safe = s.replace("'", "\\'")
             return str(len(s.replace(' ',''))), f"print(len('{safe}'.replace(' ','')))"
 
-        # --- NEW SKILL: summarize URL ---
+        # --- IMPROVED: clean summarizer ---
         if m := re.search(r'summarize (https?://\S+)', t):
             url = m.group(1)
             try:
                 r = httpx.get(url, headers=HEADERS, timeout=10.0, follow_redirects=True)
-                text_only = re.sub(r'<[^>]+>', ' ', r.text)
-                summary = ' '.join(text_only.split())[:300]
-                # NO import here - we use the globals passed to act()
-                test = f"r=httpx.get('{url}',headers={{'User-Agent':'Mozilla/5.0'}}); t=re.sub(r'<[^>]+>',' ',r.text); print(' '.join(t.split())[:300])"
-                return f"Summary: {summary}...", test
-            except Exception:
+                html = r.text
+                # remove scripts, styles, comments
+                html = re.sub(r'<script.*?</script>', ' ', html, flags=re.DOTALL|re.IGNORECASE)
+                html = re.sub(r'<style.*?</style>', ' ', html, flags=re.DOTALL|re.IGNORECASE)
+                html = re.sub(r'<!--.*?-->', ' ', html, flags=re.DOTALL)
+                # strip tags
+                text_only = re.sub(r'<[^>]+>', ' ', html)
+                # clean whitespace
+                text_only = ' '.join(text_only.split())
+                # get first 3 real sentences
+                sentences = re.split(r'(?<=[.!?])\s+', text_only)
+                summary = ' '.join(sentences[:3])[:400]
+                if not summary: summary = text_only[:300]
+
+                test = f"r=httpx.get('{url}',headers={{'User-Agent':'Mozilla/5.0'}}); h=r.text; h=__import__('re').sub(r'<script.*?</script>',' ',h,flags=__import__('re').DOTALL|__import__('re').IGNORECASE); h=__import__('re').sub(r'<style.*?</style>',' ',h,flags=__import__('re').DOTALL|__import__('re').IGNORECASE); t=__import__('re').sub(r'<[^>]+>',' ',h); t=' '.join(t.split()); s=__import__('re').split(r'(?<=[.!?])\\s+',t); print(' '.join(s[:3])[:400])"
+                return f"Summary: {summary}", test
+            except Exception as e:
                 return f"Failed to fetch {url}", "# fetch failed"
 
         # --- web (Wikipedia) ---
@@ -69,7 +80,8 @@ class WorldEngine:
         safe = {'print':print,'range':range,'len':len,'sum':sum,'min':min,'max':max,'abs':abs,'round':round,'str':str,'int':int,'float':float,'list':list,'dict':dict}
         try:
             with contextlib.redirect_stdout(out):
-                exec(text, {'__builtins__':safe,'httpx':httpx,'re':re}, {})
+                # allow __import__ for the test code above
+                exec(text, {'__builtins__': {**safe, '__import__': __import__}, 'httpx':httpx,'re':re}, {})
             return out.getvalue() or "code ran with no output"
         except:
             return "Error:\n"+traceback.format_exc()[-300:]
