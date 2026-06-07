@@ -19,52 +19,63 @@ class WorldEngine:
             except:
                 pass
 
-        # 2-5. string ops (same as before)
+        # 2. REVERSE
         m = re.search(r'reverse (.+)', t)
         if m:
             s = m.group(1).strip()
-            return s[::-1], f"print('{s.replace(\"'\",\"\\\\'\")}'[::-1])"
+            safe = s.replace("'", "\\'")
+            return s[::-1], f"print('{safe}'[::-1])"
+
+        # 3. UPPERCASE
         m = re.search(r'uppercase (.+)', t)
         if m:
             s = m.group(1).strip()
-            return s.upper(), f"print('{s.replace(\"'\",\"\\\\'\")}'.upper())"
+            safe = s.replace("'", "\\'")
+            return s.upper(), f"print('{safe}'.upper())"
+
+        # 4. LOWERCASE
         m = re.search(r'lowercase (.+)', t)
         if m:
             s = m.group(1).strip()
-            return s.lower(), f"print('{s.replace(\"'\",\"\\\\'\")}'.lower())"
+            safe = s.replace("'", "\\'")
+            return s.lower(), f"print('{safe}'.lower())"
+
+        # 5. LENGTH
         m = re.search(r'(how many letters in|length of) (.+)', t)
         if m:
             s = m.group(2).strip()
-            return str(len(s.replace(' ', ''))), f"print(len('{s.replace(\"'\",\"\\\\'\")}'.replace(' ','')))"
+            safe = s.replace("'", "\\'")
+            count = len(s.replace(' ', ''))
+            return str(count), f"print(len('{safe}'.replace(' ','')))"
 
-        # 6. WEB FACTS - improved
+        # 6. WEB FACTS
         if t.startswith(("what is ", "who is ", "where is ", "when is ")) or "capital of" in t:
-            # try simplified query
             query = re.sub(r'^(what|who|where|when) is ', '', t).strip()
-            for q in [clean, query, query.title()]:
+            for q in [clean, query]:
                 # DuckDuckGo
                 try:
                     r = httpx.get("https://api.duckduckgo.com/", params={"q": q, "format": "json", "no_html": 1}, timeout=5.0)
                     d = r.json()
                     ans = d.get("AbstractText", "").strip()
                     if not ans and d.get("RelatedTopics"):
-                        ans = d["RelatedTopics"][0].get("Text", "") if isinstance(d["RelatedTopics"][0], dict) else ""
+                        first = d["RelatedTopics"][0]
+                        if isinstance(first, dict):
+                            ans = first.get("Text", "")
                     if ans:
                         ans = ans[:200]
-                        safe = q.replace("\\", "\\\\").replace("'", "\\'")
-                        test = f"import httpx; r=httpx.get('https://api.duckduckgo.com/',params={{'q':'{safe}','format':'json'}}); d=r.json(); a=d.get('AbstractText') or ''; print(a[:200] if a else 'no DDG')"
+                        safe = q.replace("'", "\\'")
+                        test = f"import httpx; r=httpx.get('https://api.duckduckgo.com/', params={{'q':'{safe}','format':'json'}}); print(r.json().get('AbstractText','')[:200])"
                         return ans, test
                 except:
                     pass
-                # Wikipedia fallback
+                # Wikipedia
                 try:
-                    w = httpx.get("https://en.wikipedia.org/api/rest_v1/page/summary/" + q.replace(" ", "_"), timeout=5.0)
+                    w = httpx.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{q.replace(' ', '_')}", timeout=5.0)
                     if w.status_code == 200:
-                        js = w.json()
-                        ans = js.get("extract", "")[:200]
+                        ans = w.json().get("extract", "")[:200]
                         if ans:
-                            safe = q.replace("\\", "\\\\").replace("'", "\\'")
-                            test = f"import httpx; r=httpx.get('https://en.wikipedia.org/api/rest_v1/page/summary/{safe.replace(' ', '_')}'); print(r.json().get('extract','')[:200])"
+                            safe = q.replace("'", "\\'")
+                            test = f"import httpx; r=httpx.get('https://en.wikipedia.org/api/rest_v1/page/summary/{q.replace(' ', '_')}'); print(r.json().get('extract','')[:200])"
                             return ans, test
                 except:
                     pass
@@ -74,7 +85,11 @@ class WorldEngine:
     def act(self, text: str) -> str:
         code = text.strip()
         output = io.StringIO()
-        safe_builtins = {'print': print, 'range': range, 'len': len, 'sum': sum, 'min': min, 'max': max, 'abs': abs, 'round': round, 'str': str, 'int': int, 'float': float, 'list': list, 'dict': dict}
+        safe_builtins = {
+            'print': print, 'range': range, 'len': len, 'sum': sum,
+            'min': min, 'max': max, 'abs': abs, 'round': round,
+            'str': str, 'int': int, 'float': float, 'list': list, 'dict': dict,
+        }
         safe_globals = {'__builtins__': safe_builtins, 'httpx': httpx}
         try:
             with contextlib.redirect_stdout(output):
