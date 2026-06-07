@@ -19,88 +19,66 @@ class WorldEngine:
             except:
                 pass
 
-        # 2. REVERSE
+        # 2-5. string ops (same as before)
         m = re.search(r'reverse (.+)', t)
         if m:
             s = m.group(1).strip()
-            safe = s.replace("'", "\\'")
-            return s[::-1], f"print('{safe}'[::-1])"
-
-        # 3. UPPERCASE
+            return s[::-1], f"print('{s.replace(\"'\",\"\\\\'\")}'[::-1])"
         m = re.search(r'uppercase (.+)', t)
         if m:
             s = m.group(1).strip()
-            safe = s.replace("'", "\\'")
-            return s.upper(), f"print('{safe}'.upper())"
-
-        # 4. LOWERCASE
+            return s.upper(), f"print('{s.replace(\"'\",\"\\\\'\")}'.upper())"
         m = re.search(r'lowercase (.+)', t)
         if m:
             s = m.group(1).strip()
-            safe = s.replace("'", "\\'")
-            return s.lower(), f"print('{safe}'.lower())"
-
-        # 5. LENGTH
+            return s.lower(), f"print('{s.replace(\"'\",\"\\\\'\")}'.lower())"
         m = re.search(r'(how many letters in|length of) (.+)', t)
         if m:
             s = m.group(2).strip()
-            safe = s.replace("'", "\\'")
-            count = len(s.replace(' ', ''))
-            return str(count), f"print(len('{safe}'.replace(' ','')))"
+            return str(len(s.replace(' ', ''))), f"print(len('{s.replace(\"'\",\"\\\\'\")}'.replace(' ','')))"
 
-        # 6. WEB FACTS - Path 2 (fixed)
+        # 6. WEB FACTS - improved
         if t.startswith(("what is ", "who is ", "where is ", "when is ")) or "capital of" in t:
-            try:
-                r = httpx.get(
-                    "https://api.duckduckgo.com/",
-                    params={"q": clean, "format": "json", "no_html": 1, "skip_disambig": 1},
-                    timeout=5.0
-                )
-                data = r.json()
-                abstract = data.get("AbstractText", "").strip()
-
-                if not abstract and data.get("RelatedTopics"):
-                    first = data["RelatedTopics"][0]
-                    if isinstance(first, dict):
-                        abstract = first.get("Text", "").strip()
-
-                if abstract:
-                    abstract = abstract[:200]
-                    safe = clean.replace("\\", "\\\\").replace("'", "\\'")
-                    # clean test code - no broken braces
-                    test_code = (
-                        f"import httpx; "
-                        f"r = httpx.get('https://api.duckduckgo.com/', "
-                        f"params={{'q': '{safe}', 'format': 'json', 'no_html': 1}}); "
-                        f"d = r.json(); "
-                        f"a = d.get('AbstractText') or ''; "
-                        f"if not a and d.get('RelatedTopics'): a = d['RelatedTopics'][0].get('Text',''); "
-                        f"print(a[:200])"
-                    )
-                    return abstract, test_code
-            except Exception as e:
-                # fail silently to fallback
-                pass
+            # try simplified query
+            query = re.sub(r'^(what|who|where|when) is ', '', t).strip()
+            for q in [clean, query, query.title()]:
+                # DuckDuckGo
+                try:
+                    r = httpx.get("https://api.duckduckgo.com/", params={"q": q, "format": "json", "no_html": 1}, timeout=5.0)
+                    d = r.json()
+                    ans = d.get("AbstractText", "").strip()
+                    if not ans and d.get("RelatedTopics"):
+                        ans = d["RelatedTopics"][0].get("Text", "") if isinstance(d["RelatedTopics"][0], dict) else ""
+                    if ans:
+                        ans = ans[:200]
+                        safe = q.replace("\\", "\\\\").replace("'", "\\'")
+                        test = f"import httpx; r=httpx.get('https://api.duckduckgo.com/',params={{'q':'{safe}','format':'json'}}); d=r.json(); a=d.get('AbstractText') or ''; print(a[:200] if a else 'no DDG')"
+                        return ans, test
+                except:
+                    pass
+                # Wikipedia fallback
+                try:
+                    w = httpx.get("https://en.wikipedia.org/api/rest_v1/page/summary/" + q.replace(" ", "_"), timeout=5.0)
+                    if w.status_code == 200:
+                        js = w.json()
+                        ans = js.get("extract", "")[:200]
+                        if ans:
+                            safe = q.replace("\\", "\\\\").replace("'", "\\'")
+                            test = f"import httpx; r=httpx.get('https://en.wikipedia.org/api/rest_v1/page/summary/{safe.replace(' ', '_')}'); print(r.json().get('extract','')[:200])"
+                            return ans, test
+                except:
+                    pass
 
         return f"Simulated future for: {clean}", "# no auto test"
 
     def act(self, text: str) -> str:
         code = text.strip()
         output = io.StringIO()
-
-        safe_builtins = {
-            'print': print, 'range': range, 'len': len, 'sum': sum,
-            'min': min, 'max': max, 'abs': abs, 'round': round,
-            'str': str, 'int': int, 'float': float, 'list': list, 'dict': dict,
-        }
-
-        # allow httpx for web tests
+        safe_builtins = {'print': print, 'range': range, 'len': len, 'sum': sum, 'min': min, 'max': max, 'abs': abs, 'round': round, 'str': str, 'int': int, 'float': float, 'list': list, 'dict': dict}
         safe_globals = {'__builtins__': safe_builtins, 'httpx': httpx}
-
         try:
             with contextlib.redirect_stdout(output):
                 exec(code, safe_globals, {})
-            result = output.getvalue()
-            return result if result else "code ran with no output"
+            return output.getvalue() or "code ran with no output"
         except Exception:
             return "Error:\n" + traceback.format_exc()[-300:]
