@@ -14,15 +14,25 @@ class WorldEngine:
                 try: return str(eval(expr, {"__builtins__":{}})), f"print({expr})"
                 except: pass
 
-        # --- SKILL 1: compound interest ---
+        # --- compound interest ---
         if m := re.search(r'calculate (\d+(?:\.\d+)?) at (\d+(?:\.\d+)?)% for (\d+(?:\.\d+)?) years?', t):
-            p = float(m.group(1))
-            rate = float(m.group(2)) / 100
-            y = float(m.group(3))
+            p = float(m.group(1)); rate = float(m.group(2)) / 100; y = float(m.group(3))
             result = p * (1 + rate) ** y
             ans = f"{p:,.0f} at {m.group(2)}% for {y:g} years = {result:,.2f}"
             test = f"p={p}; r={rate}; y={y}; print(f'{{p}} at {m.group(2)}% for {{y:g}} years = {{p*(1+r)**y:,.2f}}')"
             return ans, test
+
+        # --- SKILL 2: weather ---
+        if m := re.search(r'weather in ([a-zA-Z\s]+)', t):
+            city = m.group(1).strip().title()
+            try:
+                url = f"https://wttr.in/{city}?format=3"
+                r = httpx.get(url, headers=HEADERS, timeout=8.0)
+                ans = r.text.strip() or f"Weather for {city}"
+                test = f"r=httpx.get('https://wttr.in/{city}?format=3',headers={{'User-Agent':'Mozilla/5.0'}}); print(r.text.strip())"
+                return ans, test
+            except Exception:
+                return f"Failed to get weather for {city}", "# weather failed"
 
         # --- string ops ---
         if m := re.search(r'reverse (.+)', t):
