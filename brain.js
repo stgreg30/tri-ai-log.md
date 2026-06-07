@@ -1,35 +1,47 @@
 const fs = require("fs");
 
 // =========================
-// EMERGENT BRAIN v0.1 + MEMORY
+// EMERGENT BRAIN v0.2 + MEMORY SYSTEM
 // =========================
 
 const NODE_COUNT = 20;
 const CONNECTIONS_PER_NODE = 4;
 const LEARNING_RATE = 0.005;
-const DECAY = 0.995;
+const DECAY = 0.997; // slightly more stable than before
 const TICK_INTERVAL = 200;
 const STIMULUS_INTERVAL = 25;
 
-// -------------------------
-// MEMORY FUNCTION
-// -------------------------
-function saveMemory(data) {
-  const file = "memory_log.json";
+const MEMORY_FILE = "memory_log.json";
+const MAX_MEMORY_ENTRIES = 500; // prevents file from growing forever
 
-  let log = [];
+// -------------------------
+// SAFE MEMORY SYSTEM
+// -------------------------
+function loadMemory() {
+  try {
+    if (!fs.existsSync(MEMORY_FILE)) return [];
+    const data = fs.readFileSync(MEMORY_FILE, "utf-8");
+    return JSON.parse(data || "[]");
+  } catch (err) {
+    return [];
+  }
+}
 
-  if (fs.existsSync(file)) {
-    try {
-      log = JSON.parse(fs.readFileSync(file));
-    } catch (e) {
-      log = [];
-    }
+function saveMemory(entry) {
+  const log = loadMemory();
+
+  log.push(entry);
+
+  // prevent infinite file growth
+  if (log.length > MAX_MEMORY_ENTRIES) {
+    log.splice(0, log.length - MAX_MEMORY_ENTRIES);
   }
 
-  log.push(data);
-
-  fs.writeFileSync(file, JSON.stringify(log, null, 2));
+  try {
+    fs.writeFileSync(MEMORY_FILE, JSON.stringify(log, null, 2));
+  } catch (err) {
+    console.error("Memory save failed:", err.message);
+  }
 }
 
 // -------------------------
@@ -57,30 +69,32 @@ class Node {
   update(nodes) {
     const input_sum = this.computeInput(nodes);
 
-    // memory update
-    this.state = (0.85 * this.state) + (0.15 * input_sum);
+    // memory blend (short-term memory)
+    this.state = (0.88 * this.state) + (0.12 * input_sum);
 
-    // output
+    // output activation
     this.output = Math.tanh(this.state);
 
     this.activity = Math.abs(this.output);
 
-    // learning
+    // learning rule (simple Hebbian-style)
     for (const conn of this.inputs) {
       const pre = nodes[conn.from].output;
       const post = this.output;
 
       conn.weight += LEARNING_RATE * pre * post;
 
-      conn.weight = Math.max(-1, Math.min(1, conn.weight));
+      // clamp
+      conn.weight = Math.max(-1.5, Math.min(1.5, conn.weight));
 
+      // decay
       conn.weight *= DECAY;
     }
   }
 }
 
 // -------------------------
-// NETWORK
+// NETWORK CREATION
 // -------------------------
 function createNetwork() {
   const nodes = [];
@@ -104,17 +118,17 @@ function createNetwork() {
 }
 
 // -------------------------
-// STIMULUS
+// STIMULUS (external input)
 // -------------------------
 function stimulate(nodes, tick) {
   if (tick % STIMULUS_INTERVAL === 0) {
     const target = Math.floor(Math.random() * NODE_COUNT);
-    nodes[target].state += (Math.random() * 2 - 1) * 0.5;
+    nodes[target].state += (Math.random() - 0.5) * 0.8;
   }
 }
 
 // -------------------------
-// RUN
+// RUN ENGINE
 // -------------------------
 const nodes = createNetwork();
 let tick = 0;
@@ -138,23 +152,25 @@ function runStep() {
   avgActivity /= NODE_COUNT;
 
   // -------------------------
-  // MEMORY SAVE (IMPORTANT PART)
+  // MEMORY WRITE (optimized)
   // -------------------------
   if (tick % 10 === 0) {
     saveMemory({
       tick,
       avgState,
       avgActivity,
+      activityLevel:
+        avgActivity > 0.2 ? "high" :
+        avgActivity > 0.05 ? "medium" : "low",
       timestamp: Date.now()
     });
   }
 
   console.log(
-    `Tick ${tick} | Avg State: ${avgState.toFixed(3)} | Activity: ${avgActivity.toFixed(3)}`
+    `Tick ${tick} | State: ${avgState.toFixed(3)} | Activity: ${avgActivity.toFixed(3)}`
   );
 
   tick++;
 }
 
-// -------------------------
 setInterval(runStep, TICK_INTERVAL);
