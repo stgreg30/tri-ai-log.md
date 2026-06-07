@@ -22,14 +22,14 @@ class WorldEngine:
             test = f"p={p}; r={rate}; y={y}; print(f'{{p}} at {m.group(2)}% for {{y:g}} years = {{p*(1+r)**y:,.2f}}')"
             return ans, test
 
-        # --- SKILL 2: weather ---
+        # --- SKILL 2: weather (CLEAN) ---
         if m := re.search(r'weather in ([a-zA-Z\s]+)', t):
             city = m.group(1).strip().title()
             try:
-                url = f"https://wttr.in/{city}?format=3"
+                url = f"https://wttr.in/{city}?format=%l:+%c+%t"
                 r = httpx.get(url, headers=HEADERS, timeout=8.0)
-                ans = r.text.strip() or f"Weather for {city}"
-                test = f"r=httpx.get('https://wttr.in/{city}?format=3',headers={{'User-Agent':'Mozilla/5.0'}}); print(r.text.strip())"
+                ans = ' '.join(r.text.strip().split())
+                test = f"r=httpx.get('https://wttr.in/{city}?format=%l:+%c+%t',headers={{'User-Agent':'Mozilla/5.0'}}); print(' '.join(r.text.strip().split()))"
                 return ans, test
             except Exception:
                 return f"Failed to get weather for {city}", "# weather failed"

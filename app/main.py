@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+import re
 from .epistemic import EpistemicAnswer
 from .memory import Memory
 from .world import WorldEngine
@@ -27,71 +28,81 @@ def home():
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Worlds Best AI Lab</title>
   <style>
-    body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:16px;background:#000;color:#eee}
-    input,textarea,button{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
+    body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:0;background:#000;color:#eee;display:flex;flex-direction:column;height:100vh}
+    header{padding:12px 16px;border-bottom:1px solid #222}
+    #out{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+   .card{background:#111;padding:12px;border-radius:12px;border:1px solid #222;white-space:pre-wrap;max-width:85%}
+   .user{align-self:flex-end;background:#0a84ff;border:none}
+   .ai{align-self:flex-start}
+    footer{padding:12px;border-top:1px solid #222}
+    input,textarea,button{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
     button{background:#0a84ff;border:none;font-weight:600}
-   .smallbtn{width:32%;display:inline-block;margin:4px 0.5%}
-   .card{background:#111;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #222;white-space:pre-wrap}
+   .smallbtn{width:32%;display:inline-block;margin:4px 0.5%;padding:8px;font-size:14px}
     small{color:#888}
   </style>
 </head>
 <body>
-  <h2>Worlds Best AI Lab</h2>
-  <small>predict → act → remember → learn</small>
-  <input id="uid" placeholder="user_id" value="ash">
-  <textarea id="txt" rows="3" placeholder="Enter your thought..."></textarea>
-  <button onclick="predict()">Predict</button>
-  <button onclick="act()">Act</button>
-  <button onclick="showMemory()">Show Memory</button>
+  <header><b>Worlds Best AI Lab</b> <small>predict → act → remember → learn</small></header>
   <div id="out"></div>
+  <footer>
+    <input id="uid" placeholder="user_id" value="ash">
+    <textarea id="txt" rows="2" placeholder="Enter your thought... (use 'then' to chain)"></textarea>
+    <button onclick="predict()">Predict</button>
+    <button onclick="act()">Act</button>
+    <button onclick="showMemory()">Show Memory</button>
+  </footer>
 <script>
 let lastPrediction = "";
 let lastTest = "";
+function addCard(html, cls){ const d=document.createElement('div'); d.className='card '+cls; d.innerHTML=html; document.getElementById('out').appendChild(d); document.getElementById('out').scrollTop=999999; }
+
 async function predict(){
   const uid=document.getElementById('uid').value;
   const txt=document.getElementById('txt').value;
+  if(!txt.trim()) return;
   lastPrediction = txt.trim();
+  addCard(txt,'user');
+  document.getElementById('txt').value='';
   const r=await fetch('/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
   lastTest = j.falsifiable_test;
-  let auto = j.auto_result? `<br><b>Auto Test Result:</b> ${j.auto_result}` : '';
+  let auto = j.auto_result? `<br><b>Auto Test:</b> ${j.auto_result.slice(0,200)}` : '';
   let learned = j.learned? ' <small style="color:#0f0">[LEARNED]</small>' : '';
-  const card = `<div class=card><b>Prediction${learned}</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small>${auto}<br><button class=smallbtn onclick="runTest()">Run Test</button><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
-  document.getElementById('out').innerHTML = card + document.getElementById('out').innerHTML;
+  const html = `<b>Prediction${learned}</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small>${auto}<br><button class=smallbtn onclick="runTest()">Run Test</button><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button>`;
+  addCard(html,'ai');
 }
 async function act(){
   const uid=document.getElementById('uid').value;
   const txt=document.getElementById('txt').value;
+  addCard(txt,'user');
   const r=await fetch('/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
-  document.getElementById('out').innerHTML='<div class=card><b>Action</b><br>'+j.result+'</div>'+document.getElementById('out').innerHTML;
+  addCard('<b>Action</b><br>'+j.result,'ai');
 }
 async function runTest(){
   const uid=document.getElementById('uid').value;
   const r=await fetch('/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:lastTest,user_id:uid})});
   const j=await r.json();
-  document.getElementById('out').innerHTML='<div class=card><b>Test Result</b><br>'+j.result+'</div>'+document.getElementById('out').innerHTML;
+  addCard('<b>Test Result</b><br>'+j.result,'ai');
 }
 async function showMemory(){
   const uid=document.getElementById('uid').value;
   const r=await fetch('/memory/'+uid);
   const j=await r.json();
-  let html='<div class=card><b>Memory ('+j.length+')</b><br>';
+  let html='<b>Memory ('+j.length+')</b><br>';
   j.slice(0,15).forEach(m=>{html+=m.key+': '+JSON.stringify(m.value).slice(0,80)+'<br>'});
-  html+='</div>';
-  document.getElementById('out').innerHTML=html+document.getElementById('out').innerHTML;
+  addCard(html,'ai');
 }
 async function feedback(correct){
   const uid=document.getElementById('uid').value;
   const r = await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:lastPrediction,user_id:uid,correct:correct})});
   const j = await r.json();
-  let html = '<div class=card><small>Feedback saved: '+ (correct?'TRUE':'FALSE') +' for "'+lastPrediction+'"</small>';
+  let html = '<small>Feedback saved: '+ (correct?'TRUE':'FALSE') +' for "'+lastPrediction+'"</small>';
   if(j.correction){
     html += '<br><b style="color:#0f0">Auto-correction:</b> '+ j.correction.claim;
     if(j.correction.auto_result) html += '<br><small>verified: '+ j.correction.auto_result.slice(0,120) +'</small>';
   }
-  html += '</div>';
-  document.getElementById('out').innerHTML = html + document.getElementById('out').innerHTML;
+  addCard(html,'ai');
 }
 </script>
 </body>
@@ -101,31 +112,47 @@ async function feedback(correct){
 @app.post("/predict")
 def predict(q: Query):
     text_norm = q.text.strip()
-    past = memory.get_all(q.user_id)  # your Supabase returns newest first
+    
+    # --- NEW: TOOL CHAINING ---
+    if ' then ' in text_norm.lower():
+        steps = re.split(r'\s+then\s+', q.text, flags=re.IGNORECASE)
+        chain_results = []
+        last_summary = ""
+        for step in steps:
+            step_proc = step
+            if 'city mentioned' in step.lower() and last_summary:
+                city = re.search(r'\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\b', last_summary)
+                if city:
+                    step_proc = re.sub(r'city mentioned', city.group(1), step, flags=re.IGNORECASE)
+            pred, test = world.predict(step_proc.strip())
+            if step_proc.lower().startswith('summarize'):
+                last_summary = pred
+            chain_results.append(f"→ {step_proc}:\n{pred}")
+            memory.add(q.user_id, step_proc, {"claim": pred})
+        final_claim = "\n\n".join(chain_results)
+        answer = EpistemicAnswer(claim=final_claim, source="chain", uncertainty=0.2, falsifiable_test="# chain")
+        memory.add(q.user_id, text_norm, answer.model_dump())
+        result = answer.model_dump(); result["auto_result"] = None; result["learned"] = False
+        return result
 
-    # PATH 3: learn good answers
+    past = memory.get_all(q.user_id)
+
     learned_answer = None
     feedback_trues = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}" and m["value"].get("correct")]
-
     if feedback_trues:
-        for fb in feedback_trues:  # newest first
+        for fb in feedback_trues:
             approved = fb["value"].get("approved_claim")
             if approved and not approved.startswith("Simulated future for:"):
-                learned_answer = approved
-                break
+                learned_answer = approved; break
         if not learned_answer:
             preds = [m for m in past if m["key"] == text_norm and isinstance(m["value"], dict) and "claim" in m["value"]]
             for p in preds:
                 claim = p["value"]["claim"]
                 if not claim.startswith("Simulated future for:"):
-                    learned_answer = claim
-                    break
+                    learned_answer = claim; break
 
     if learned_answer:
-        prediction = learned_answer
-        test_code = "# learned from memory"
-        uncertainty = 0.1
-        source = "learned_memory"
+        prediction = learned_answer; test_code = "# learned from memory"; uncertainty = 0.1; source = "learned_memory"
     else:
         prediction, test_code = world.predict(text_norm)
         feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}"]
@@ -138,15 +165,11 @@ def predict(q: Query):
 
     answer = EpistemicAnswer(claim=prediction, source=source, uncertainty=uncertainty, falsifiable_test=test_code)
     memory.add(q.user_id, text_norm, answer.model_dump())
-
     auto_result = None
     if test_code and not test_code.startswith("#"):
         auto_result = world.act(test_code)
         memory.add(q.user_id, f"ACT:{test_code[:80]}", {"result": auto_result})
-
-    result = answer.model_dump()
-    result["auto_result"] = auto_result
-    result["learned"] = bool(learned_answer)
+    result = answer.model_dump(); result["auto_result"] = auto_result; result["learned"] = bool(learned_answer)
     return result
 
 @app.post("/act")
@@ -161,8 +184,6 @@ def give_feedback(fb: Feedback):
     past = memory.get_all(fb.user_id)
     last_pred = next((m["value"]["claim"] for m in past if m["key"] == text_norm and "claim" in m["value"]), None)
     memory.add(fb.user_id, f"FEEDBACK:{text_norm}", {"correct": fb.correct, "approved_claim": last_pred})
-
-    # PATH 4: auto-correct on FALSE
     correction = None
     if not fb.correct and last_pred:
         new_pred, test_code = world.predict(text_norm)
@@ -174,7 +195,6 @@ def give_feedback(fb: Feedback):
                 auto_res = world.act(test_code)
                 memory.add(fb.user_id, f"ACT:{test_code[:80]}", {"result": auto_res})
             correction = {"claim": new_pred, "auto_result": auto_res}
-
     return {"status": "saved", "correction": correction}
 
 @app.get("/memory/{user_id}")
