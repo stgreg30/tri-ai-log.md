@@ -13,6 +13,11 @@ class Query(BaseModel):
     text: str
     user_id: str = "default"
 
+class Feedback(BaseModel):
+    text: str
+    user_id: str = "default"
+    correct: bool
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return '''
@@ -25,13 +30,14 @@ def home():
     body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:16px;background:#000;color:#eee}
     input,textarea,button{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
     button{background:#0a84ff;border:none;font-weight:600}
+    .smallbtn{width:48%;display:inline-block;margin:4px 1%}
     .card{background:#111;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #222}
     small{color:#888}
   </style>
 </head>
 <body>
   <h2>Worlds Best AI Lab</h2>
-  <small>predict → act → remember</small>
+  <small>predict → act → remember → learn</small>
   <input id="uid" placeholder="user_id" value="ash">
   <textarea id="txt" rows="3" placeholder="Enter your thought..."></textarea>
   <button onclick="predict()">Predict</button>
@@ -39,12 +45,15 @@ def home():
   <button onclick="showMemory()">Show Memory</button>
   <div id="out"></div>
 <script>
+let lastPrediction = "";
 async function predict(){
   const uid=document.getElementById('uid').value;
   const txt=document.getElementById('txt').value;
+  lastPrediction = txt;
   const r=await fetch('/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
-  document.getElementById('out').innerHTML='<div class=card><b>Prediction</b><br>'+j.claim+'<br><small>uncertainty '+j.uncertainty+' | test: '+j.falsifiable_test+'</small></div>'+document.getElementById('out').innerHTML;
+  const card = `<div class=card><b>Prediction</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small><br><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
+  document.getElementById('out').innerHTML = card + document.getElementById('out').innerHTML;
 }
 async function act(){
   const uid=document.getElementById('uid').value;
@@ -61,6 +70,11 @@ async function showMemory(){
   j.slice(0,10).forEach(m=>{html+=m.key+': '+JSON.stringify(m.value).slice(0,80)+'<br>'});
   html+='</div>';
   document.getElementById('out').innerHTML=html+document.getElementById('out').innerHTML;
+}
+async function feedback(correct){
+  const uid=document.getElementById('uid').value;
+  await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:lastPrediction,user_id:uid,correct:correct})});
+  document.getElementById('out').innerHTML='<div class=card><small>Feedback saved: '+ (correct?'TRUE':'FALSE') +' for "'+lastPrediction+'"</small></div>'+document.getElementById('out').innerHTML;
 }
 </script>
 </body>
@@ -87,6 +101,11 @@ def act(q: Query):
     result = world.act(q.text)
     memory.add(q.user_id, f"ACT:{q.text}", {"result": result})
     return {"result": result}
+
+@app.post("/feedback")
+def give_feedback(fb: Feedback):
+    memory.add(fb.user_id, f"FEEDBACK:{fb.text}", {"correct": fb.correct})
+    return {"status": "saved", "correct": fb.correct}
 
 @app.get("/memory/{user_id}")
 def get_memory(user_id: str):
