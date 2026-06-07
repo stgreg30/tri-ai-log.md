@@ -32,15 +32,15 @@ def home():
     body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:0;background:#000;color:#eee;display:flex;flex-direction:column;height:100vh}
     header{padding:12px 16px;border-bottom:1px solid #222}
     #out{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
-   .card{background:#111;padding:12px;border-radius:12px;border:1px solid #222;white-space:pre-wrap;max-width:85%}
-   .user{align-self:flex-end;background:#0a84ff;border:none}
-   .ai{align-self:flex-start}
+  .card{background:#111;padding:12px;border-radius:12px;border:1px solid #222;white-space:pre-wrap;max-width:85%}
+  .user{align-self:flex-end;background:#0a84ff;border:none}
+  .ai{align-self:flex-start}
     footer{padding:12px;border-top:1px solid #222}
     input,textarea,button{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
     button{background:#0a84ff;border:none;font-weight:600}
-   .row{display:flex;gap:6px}
-   .row button{width:50%}
-   .smallbtn{width:32%;display:inline-block;margin:4px 0.5%;padding:8px;font-size:14px}
+  .row{display:flex;gap:6px}
+  .row button{width:50%}
+  .smallbtn{width:32%;display:inline-block;margin:4px 0.5%;padding:8px;font-size:14px}
     small{color:#888}
   </style>
 </head>
@@ -97,8 +97,8 @@ async function uploadImg(){
   addCard('📷 Uploading...','user');
   const r=await fetch('/upload',{method:'POST',body:fd});
   const j=await r.json();
-  addCard('<b>Image Text</b><br>'+j.text,'ai');
-  document.getElementById('txt').value = j.text.slice(0,200);
+  addCard('<b>Image Text</b><br>'+j.text+'<br><br><b>AI Sees</b><br>'+j.caption,'ai');
+  document.getElementById('txt').value = j.caption || j.text;
 }
 function startVoice(){
   const rec = new (window.SpeechRecognition||window.webkitSpeechRecognition)();
@@ -129,6 +129,9 @@ async function feedback(correct){
 @app.post("/upload")
 async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
     content = await file.read()
+
+    # --- Sense 1: OCR (text) ---
+    text = ""
     try:
         r = httpx.post(
             "https://api.ocr.space/parse/image",
@@ -140,8 +143,33 @@ async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
         text = data["ParsedResults"][0]["ParsedText"] if data.get("ParsedResults") else ""
     except Exception as e:
         text = f"OCR failed: {e}"
-    memory.add(user_id, f"IMAGE:{file.filename}", {"text": text})
-    return {"text": text.strip() or "[no text found]"}
+
+    # --- Sense 2: VISION (real world model) ---
+    caption = ""
+    try:
+        vision_r = httpx.post(
+            "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-base",
+            content=content,
+            headers={"Content-Type": "application/octet-stream"},
+            timeout=30.0
+        )
+        if vision_r.status_code == 200:
+            result = vision_r.json()
+            caption = result[0]["generated_text"] if isinstance(result, list) else ""
+    except Exception as e:
+        caption = f"Vision failed: {e}"
+
+    # --- Log as real-world data ---
+    memory.add(user_id, f"VISION:{file.filename}", {
+        "ocr_text": text.strip(),
+        "caption": caption,
+        "timestamp": __import__('datetime').datetime.utcnow().isoformat()
+    })
+
+    return {
+        "text": text.strip() or "[no text found]",
+        "caption": caption or "[no description]"
+    }
 
 @app.post("/predict")
 def predict(q: Query):
