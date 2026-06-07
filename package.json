@@ -1,0 +1,11 @@
+{
+  "name": "brain-engine",
+  "version": "1.0.0",
+  "main": "brain.js",
+  "scripts": {
+    "start": "node brain.js"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
