@@ -1,9 +1,8 @@
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-import re, tempfile, os
-from PIL import Image
-import pytesseract
+import re
+import httpx
 from.epistemic import EpistemicAnswer
 from.memory import Memory
 from.world import WorldEngine
@@ -33,15 +32,15 @@ def home():
     body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:0;background:#000;color:#eee;display:flex;flex-direction:column;height:100vh}
     header{padding:12px 16px;border-bottom:1px solid #222}
     #out{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
-   .card{background:#111;padding:12px;border-radius:12px;border:1px solid #222;white-space:pre-wrap;max-width:85%}
-   .user{align-self:flex-end;background:#0a84ff;border:none}
-   .ai{align-self:flex-start}
+  .card{background:#111;padding:12px;border-radius:12px;border:1px solid #222;white-space:pre-wrap;max-width:85%}
+  .user{align-self:flex-end;background:#0a84ff;border:none}
+  .ai{align-self:flex-start}
     footer{padding:12px;border-top:1px solid #222}
     input,textarea,button{width:100%;padding:12px;margin:6px 0;border-radius:10px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
     button{background:#0a84ff;border:none;font-weight:600}
-   .row{display:flex;gap:6px}
-   .row button{width:50%}
-   .smallbtn{width:32%;display:inline-block;margin:4px 0.5%;padding:8px;font-size:14px}
+  .row{display:flex;gap:6px}
+  .row button{width:50%}
+  .smallbtn{width:32%;display:inline-block;margin:4px 0.5%;padding:8px;font-size:14px}
     small{color:#888}
   </style>
 </head>
@@ -129,15 +128,20 @@ async function feedback(correct){
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
     content = await file.read()
-    tmp.write(content); tmp.close()
     try:
-        img = Image.open(tmp.name)
-        text = pytesseract.image_to_string(img)[:1000]
+        # Free OCR.space API (works without install)
+        r = httpx.post(
+            "https://api.ocr.space/parse/image",
+            files={"file": (file.filename, content, file.content_type)},
+            data={"apikey": "helloworld", "language": "eng"},
+            timeout=20.0
+        )
+        data = r.json()
+        text = data["ParsedResults"][0]["ParsedText"] if data.get("ParsedResults") else ""
     except Exception as e:
         text = f"OCR failed: {e}"
-    os.unlink(tmp.name)
+
     memory.add(user_id, f"IMAGE:{file.filename}", {"text": text})
     return {"text": text.strip() or "[no text found]"}
 
