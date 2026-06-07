@@ -34,7 +34,6 @@ class WorldEngine:
             if "capital of" in t:
                 q = "capital of " + t.split("capital of")[-1].strip()
 
-            # try Wikipedia with headers
             try:
                 sr = httpx.get("https://en.wikipedia.org/w/api.php",
                     params={"action":"query","list":"search","srsearch":q,"format":"json"},
@@ -42,25 +41,14 @@ class WorldEngine:
                 hits = sr.json().get("query",{}).get("search",[])
                 if hits:
                     title = hits[0]["title"]
-                    sm = httpx.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{title.replace(' ','_')}",
+                    sm = httpx.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{title.replace(' ', '_')}",
                                    headers=HEADERS, timeout=8.0)
                     if sm.status_code == 200:
                         ans = sm.json().get("extract","")[:200]
                         if ans:
-                            test = f"import httpx; h={{'User-Agent':'Mozilla/5.0'}}; r=httpx.get('https://en.wikipedia.org/api/rest_v1/page/summary/{title.replace(' ','_')}',headers=h); print(r.json().get('extract','')[:200])"
+                            # NO import here – httpx is already available in act()
+                            test = f"h={{'User-Agent':'Mozilla/5.0'}}; r=httpx.get('https://en.wikipedia.org/api/rest_v1/page/summary/{title.replace(' ', '_')}',headers=h); print(r.json().get('extract','')[:200])"
                             return ans, test
-            except Exception as e:
-                pass
-
-            # DuckDuckGo fallback
-            try:
-                r = httpx.get("https://api.duckduckgo.com/", params={"q":q,"format":"json","no_html":1},
-                              headers=HEADERS, timeout=8.0)
-                ans = r.json().get("AbstractText","")[:200]
-                if ans:
-                    safe = q.replace("'", "\\'")
-                    test = f"import httpx; print(httpx.get('https://api.duckduckgo.com/', params={{'q':'{safe}','format':'json'}}, headers={{'User-Agent':'Mozilla/5.0'}}).json().get('AbstractText','')[:200])"
-                    return ans, test
             except: pass
 
         return f"Simulated future for: {clean}", "# no auto test"
