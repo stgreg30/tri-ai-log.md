@@ -1,24 +1,33 @@
 const express = require("express");
-const path = require("path");
-const { step } = require("./brain");
+const cors = require("cors");
+const fs = require("fs");
 
 const app = express();
+app.use(cors());
 app.use(express.json());
+app.use(express.static("public"));
 
-// serve frontend
-app.use(express.static(path.join(__dirname, "public")));
+// simple brain memory endpoint
+app.get("/memory", (req, res) => {
+  if (!fs.existsSync("memory_log.json")) {
+    return res.json([]);
+  }
 
-// chat endpoint
-app.post("/chat", (req, res) => {
-  const userMessage = req.body.message;
+  const data = JSON.parse(fs.readFileSync("memory_log.json"));
+  res.json(data.slice(-50)); // last 50 logs
+});
 
-  const result = step(userMessage);
+// simple chat endpoint (for later upgrade)
+app.post("/talk", (req, res) => {
+  const message = req.body.message;
 
-  res.json(result);
+  res.json({
+    reply: "Brain received: " + message,
+    status: "alive"
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log("Brain server running on port", PORT);
+  console.log("Brain web running on port " + PORT);
 });
