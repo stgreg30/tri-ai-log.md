@@ -54,7 +54,8 @@ async function predict(){
   const r=await fetch('/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
   lastTest = j.falsifiable_test;
-  const card = `<div class=card><b>Prediction</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small><br><button class=smallbtn onclick="runTest()">Run Test</button><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
+  let auto = j.auto_result ? `<br><b>Auto Test Result:</b> ${j.auto_result}` : '';
+  const card = `<div class=card><b>Prediction</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small>${auto}<br><button class=smallbtn onclick="runTest()">Run Test</button><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
   document.getElementById('out').innerHTML = card + document.getElementById('out').innerHTML;
 }
 async function act(){
@@ -109,7 +110,16 @@ def predict(q: Query):
         falsifiable_test=test_code
     )
     memory.add(q.user_id, text_norm, answer.model_dump())
-    return answer
+    
+    # PATH 1: auto-run the test it proposed
+    auto_result = None
+    if test_code and not test_code.strip().startswith("#"):
+        auto_result = world.act(test_code)
+        memory.add(q.user_id, f"ACT:{test_code}", {"result": auto_result})
+    
+    result = answer.model_dump()
+    result["auto_result"] = auto_result
+    return result
 
 @app.post("/act")
 def act(q: Query):
