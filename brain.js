@@ -1,16 +1,36 @@
+const fs = require("fs");
 
 // =========================
-// EMERGENT BRAIN v0.1.1
+// EMERGENT BRAIN v0.1 + MEMORY
 // =========================
 
 const NODE_COUNT = 20;
 const CONNECTIONS_PER_NODE = 4;
-
-const LEARNING_RATE = 0.005;   // reduced for stability
-const DECAY = 0.995;           // stronger stability
+const LEARNING_RATE = 0.005;
+const DECAY = 0.995;
 const TICK_INTERVAL = 200;
-
 const STIMULUS_INTERVAL = 25;
+
+// -------------------------
+// MEMORY FUNCTION
+// -------------------------
+function saveMemory(data) {
+  const file = "memory_log.json";
+
+  let log = [];
+
+  if (fs.existsSync(file)) {
+    try {
+      log = JSON.parse(fs.readFileSync(file));
+    } catch (e) {
+      log = [];
+    }
+  }
+
+  log.push(data);
+
+  fs.writeFileSync(file, JSON.stringify(log, null, 2));
+}
 
 // -------------------------
 // NODE CLASS
@@ -20,7 +40,7 @@ class Node {
     this.id = id;
     this.state = Math.random() * 2 - 1;
     this.output = 0;
-    this.inputs = []; // { from, weight }
+    this.inputs = [];
     this.activity = 0;
   }
 
@@ -37,47 +57,30 @@ class Node {
   update(nodes) {
     const input_sum = this.computeInput(nodes);
 
-    // -------------------------
-    // RULE 1: MEMORY UPDATE
-    // smoother integration (more brain-like)
-    // -------------------------
-    this.state =
-      (0.85 * this.state) +
-      (0.15 * input_sum);
+    // memory update
+    this.state = (0.85 * this.state) + (0.15 * input_sum);
 
-    // -------------------------
-    // RULE 2: OUTPUT
-    // -------------------------
+    // output
     this.output = Math.tanh(this.state);
 
-    // -------------------------
-    // track activity (for observation)
-    // -------------------------
     this.activity = Math.abs(this.output);
 
-    // -------------------------
-    // RULE 3: LEARNING (stabilized Hebbian-style)
-    // -------------------------
+    // learning
     for (const conn of this.inputs) {
       const pre = nodes[conn.from].output;
       const post = this.output;
 
-      // correlation learning (more stable than raw multiplication)
-      const delta = LEARNING_RATE * pre * post;
+      conn.weight += LEARNING_RATE * pre * post;
 
-      conn.weight += delta;
-
-      // clamp weights
       conn.weight = Math.max(-1, Math.min(1, conn.weight));
 
-      // decay
       conn.weight *= DECAY;
     }
   }
 }
 
 // -------------------------
-// CREATE NETWORK
+// NETWORK
 // -------------------------
 function createNetwork() {
   const nodes = [];
@@ -101,32 +104,17 @@ function createNetwork() {
 }
 
 // -------------------------
-// EXTERNAL STIMULUS
+// STIMULUS
 // -------------------------
 function stimulate(nodes, tick) {
   if (tick % STIMULUS_INTERVAL === 0) {
     const target = Math.floor(Math.random() * NODE_COUNT);
-
-    // softer stimulus (prevents chaos spikes)
     nodes[target].state += (Math.random() * 2 - 1) * 0.5;
   }
 }
 
 // -------------------------
-// METRICS
-// -------------------------
-function getMetrics(nodes) {
-  const avgState =
-    nodes.reduce((s, n) => s + n.state, 0) / NODE_COUNT;
-
-  const avgActivity =
-    nodes.reduce((s, n) => s + n.activity, 0) / NODE_COUNT;
-
-  return { avgState, avgActivity };
-}
-
-// -------------------------
-// BRAIN LOOP
+// RUN
 // -------------------------
 const nodes = createNetwork();
 let tick = 0;
@@ -138,18 +126,35 @@ function runStep() {
     node.update(nodes);
   }
 
-  if (tick % 10 === 0) {
-    const { avgState, avgActivity } = getMetrics(nodes);
+  let avgState = 0;
+  let avgActivity = 0;
 
-    console.log(
-      `Tick ${tick} | Avg State: ${avgState.toFixed(3)} | Activity: ${avgActivity.toFixed(3)}`
-    );
+  for (const node of nodes) {
+    avgState += node.state;
+    avgActivity += node.activity;
   }
+
+  avgState /= NODE_COUNT;
+  avgActivity /= NODE_COUNT;
+
+  // -------------------------
+  // MEMORY SAVE (IMPORTANT PART)
+  // -------------------------
+  if (tick % 10 === 0) {
+    saveMemory({
+      tick,
+      avgState,
+      avgActivity,
+      timestamp: Date.now()
+    });
+  }
+
+  console.log(
+    `Tick ${tick} | Avg State: ${avgState.toFixed(3)} | Activity: ${avgActivity.toFixed(3)}`
+  );
 
   tick++;
 }
 
-// -------------------------
-// START
 // -------------------------
 setInterval(runStep, TICK_INTERVAL);
