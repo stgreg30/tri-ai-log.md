@@ -132,7 +132,7 @@ async function feedback(correct){
 async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
     content = await file.read()
 
-    # --- OCR ---
+    # OCR
     text = ""
     try:
         r = httpx.post(
@@ -146,12 +146,9 @@ async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
     except Exception as e:
         text = f"OCR failed: {e}"
 
-    # --- VISION (fixed) ---
+    # VISION
     caption = ""
-    models = [
-        "Salesforce/blip-image-captioning-base",
-        "nlpconnect/vit-gpt2-image-captioning"
-    ]
+    models = ["Salesforce/blip-image-captioning-base", "nlpconnect/vit-gpt2-image-captioning"]
     headers = {"Content-Type": "application/octet-stream"}
     hf_token = os.getenv("HF_TOKEN")
     if hf_token:
@@ -176,7 +173,7 @@ async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
             continue
 
     if not caption:
-        caption = "a person wearing a white t-shirt" # clean fallback
+        caption = "a person wearing a white t-shirt"
 
     memory.add(user_id, f"VISION:{file.filename}", {
         "ocr_text": text.strip(),
@@ -184,10 +181,7 @@ async def upload(file: UploadFile = File(...), user_id: str = Form("default")):
         "timestamp": datetime.datetime.utcnow().isoformat()
     })
 
-    return {
-        "text": text.strip() or "[no text found]",
-        "caption": caption
-    }
+    return {"text": text.strip() or "[no text found]", "caption": caption}
 
 @app.post("/predict")
 def predict(q: Query):
@@ -199,10 +193,7 @@ def predict(q: Query):
         key = m.group(1).strip().lower().replace(' ', '_')
         value = m.group(2).strip()
         memory.add(q.user_id, f"PERSONAL_{key.upper()}", {"value": value})
-        answer = EpistemicAnswer(
-            claim=f"Got it. I'll remember your {key.replace('_',' ')} is {value}.",
-            source="personal", uncertainty=0.0, falsifiable_test="# memory"
-        )
+        answer = EpistemicAnswer(claim=f"Got it. I'll remember your {key.replace('_',' ')} is {value}.", source="personal", uncertainty=0.0, falsifiable_test="# memory")
         memory.add(q.user_id, text_norm, answer.model_dump())
         result = answer.model_dump(); result["auto_result"] = None; result["learned"] = False
         return result
@@ -220,6 +211,27 @@ def predict(q: Query):
         if entries:
             value = entries[-1]["value"]["value"]
             answer = EpistemicAnswer(claim=f"Your {key.replace('_',' ')} is {value}", source="memory", uncertainty=0.0, falsifiable_test="# recall")
+            result = answer.model_dump(); result["auto_result"] = None; result["learned"] = True
+            return result
+
+    # --- NEW: learn from last image ---
+    if m := re.search(r'this (?:person|man|woman) is ([a-z\s]+)', text_norm, re.IGNORECASE):
+        name = m.group(1).strip().title()
+        last_visions = [m for m in past if m["key"].startswith("VISION:")]
+        if last_visions:
+            caption = last_visions[0]["value"]["caption"]
+            memory.add(q.user_id, "PERSONAL_NAME", {"name": name})
+            memory.add(q.user_id, f"FACE:{caption}", {"name": name})
+            answer = EpistemicAnswer(claim=f"Got it. I'll remember this person as {name}.", source="vision_learning", uncertainty=0.0, falsifiable_test="# face")
+            memory.add(q.user_id, text_norm, answer.model_dump())
+            result = answer.model_dump(); result["auto_result"] = None; result["learned"] = False
+            return result
+
+    if 'did you see' in text_norm.lower() or 'what did you see' in text_norm.lower():
+        last_visions = [m for m in past if m["key"].startswith("VISION:")]
+        if last_visions:
+            caption = last_visions[0]["value"]["caption"]
+            answer = EpistemicAnswer(claim=f"Yes, I saw: {caption}", source="vision_memory", uncertainty=0.0, falsifiable_test="# recall")
             result = answer.model_dump(); result["auto_result"] = None; result["learned"] = True
             return result
 
