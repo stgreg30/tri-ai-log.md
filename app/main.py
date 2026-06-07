@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from .epistemic import EpistemicAnswer
-from .memory import Memory
-from .world import WorldEngine
+from.epistemic import EpistemicAnswer
+from.memory import Memory
+from.world import WorldEngine
 
 app = FastAPI(title="Worlds Best AI Skeleton")
 memory = Memory()
@@ -30,8 +30,8 @@ def home():
     body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:0;padding:16px;background:#000;color:#eee}
     input,textarea,button{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #333;background:#111;color:#eee;font-size:16px}
     button{background:#0a84ff;border:none;font-weight:600}
-    .smallbtn{width:32%;display:inline-block;margin:4px 0.5%}
-    .card{background:#111;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #222;white-space:pre-wrap}
+   .smallbtn{width:32%;display:inline-block;margin:4px 0.5%}
+   .card{background:#111;padding:12px;margin:8px 0;border-radius:8px;border:1px solid #222;white-space:pre-wrap}
     small{color:#888}
   </style>
 </head>
@@ -54,8 +54,9 @@ async function predict(){
   const r=await fetch('/predict',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,user_id:uid})});
   const j=await r.json();
   lastTest = j.falsifiable_test;
-  let auto = j.auto_result ? `<br><b>Auto Test Result:</b> ${j.auto_result}` : '';
-  const card = `<div class=card><b>Prediction</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small>${auto}<br><button class=smallbtn onclick="runTest()">Run Test</button><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
+  let auto = j.auto_result? `<br><b>Auto Test Result:</b> ${j.auto_result}` : '';
+  let learned = j.learned? ' <small style="color:#0f0">[LEARNED]</small>' : '';
+  const card = `<div class=card><b>Prediction${learned}</b><br>${j.claim}<br><small>uncertainty ${j.uncertainty} | test: ${j.falsifiable_test}</small>${auto}<br><button class=smallbtn onclick="runTest()">Run Test</button><button class=smallbtn onclick="feedback(true)">Mark True</button><button class=smallbtn onclick="feedback(false)">Mark False</button></div>`;
   document.getElementById('out').innerHTML = card + document.getElementById('out').innerHTML;
 }
 async function act(){
@@ -76,7 +77,7 @@ async function showMemory(){
   const r=await fetch('/memory/'+uid);
   const j=await r.json();
   let html='<div class=card><b>Memory ('+j.length+')</b><br>';
-  j.slice(0,10).forEach(m=>{html+=m.key+': '+JSON.stringify(m.value).slice(0,80)+'<br>'});
+  j.slice(0,15).forEach(m=>{html+=m.key+': '+JSON.stringify(m.value).slice(0,80)+'<br>'});
   html+='</div>';
   document.getElementById('out').innerHTML=html+document.getElementById('out').innerHTML;
 }
@@ -93,38 +94,57 @@ async function feedback(correct){
 @app.post("/predict")
 def predict(q: Query):
     text_norm = q.text.strip()
-    prediction, test_code = world.predict(text_norm)
     past = memory.get_all(q.user_id)
-    feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}"]
-    if feedbacks:
-        correct = sum(1 for f in feedbacks if f["value"].get("correct"))
-        total = len(feedbacks)
-        accuracy = correct / total
-        uncertainty = round(0.7 * (1 - accuracy) + 0.1, 2)
+
+    # --- PATH 3: LEARNING ---
+    feedback_trues = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}" and m["value"].get("correct") is True]
+    learned_answer = None
+    if feedback_trues:
+        # find last good prediction
+        preds = [m for m in past if m["key"] == text_norm and isinstance(m["value"], dict) and "claim" in m["value"]]
+        if preds:
+            learned_answer = preds[-1]["value"]["claim"]
+
+    if learned_answer:
+        prediction = learned_answer
+        test_code = "# learned from memory"
+        uncertainty = 0.1
+        source = "learned_memory"
     else:
-        uncertainty = 0.7
+        prediction, test_code = world.predict(text_norm)
+        # uncertainty from feedback history
+        feedbacks = [m for m in past if m["key"] == f"FEEDBACK:{text_norm}"]
+        if feedbacks:
+            correct = sum(1 for f in feedbacks if f["value"].get("correct"))
+            accuracy = correct / len(feedbacks)
+            uncertainty = round(0.7 * (1 - accuracy) + 0.1, 2)
+        else:
+            uncertainty = 0.7
+        source = "world_engine_v1"
+
     answer = EpistemicAnswer(
         claim=prediction,
-        source="world_engine_v1",
+        source=source,
         uncertainty=uncertainty,
         falsifiable_test=test_code
     )
     memory.add(q.user_id, text_norm, answer.model_dump())
-    
-    # PATH 1: auto-run the test it proposed
+
+    # PATH 1: auto-run
     auto_result = None
     if test_code and not test_code.strip().startswith("#"):
         auto_result = world.act(test_code)
-        memory.add(q.user_id, f"ACT:{test_code}", {"result": auto_result})
-    
+        memory.add(q.user_id, f"ACT:{test_code[:80]}", {"result": auto_result})
+
     result = answer.model_dump()
     result["auto_result"] = auto_result
+    result["learned"] = bool(learned_answer)
     return result
 
 @app.post("/act")
 def act(q: Query):
     result = world.act(q.text)
-    memory.add(q.user_id, f"ACT:{q.text.strip()}", {"result": result})
+    memory.add(q.user_id, f"ACT:{q.text.strip()[:80]}", {"result": result})
     return {"result": result}
 
 @app.post("/feedback")

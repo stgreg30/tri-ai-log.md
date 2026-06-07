@@ -26,14 +26,13 @@ class WorldEngine:
             return s.lower(), f"print('{safe}'.lower())"
         if m := re.search(r'(?:how many letters in|length of) (.+)', t):
             s = m.group(1).strip(); safe = s.replace("'", "\\'")
-            return str(len(s.replace(' ',' '))), f"print(len('{safe}'.replace(' ','')))"
+            return str(len(s.replace(' ',''))), f"print(len('{safe}'.replace(' ','')))"
 
         # web
         if t.startswith(("what is ","who is ","where is ","when is ")) or "capital of" in t:
             q = re.sub(r'^(what|who|where|when) is ', '', t)
             if "capital of" in t:
                 q = "capital of " + t.split("capital of")[-1].strip()
-
             try:
                 sr = httpx.get("https://en.wikipedia.org/w/api.php",
                     params={"action":"query","list":"search","srsearch":q,"format":"json"},
@@ -46,7 +45,6 @@ class WorldEngine:
                     if sm.status_code == 200:
                         ans = sm.json().get("extract","")[:200]
                         if ans:
-                            # NO import here – httpx is already available in act()
                             test = f"h={{'User-Agent':'Mozilla/5.0'}}; r=httpx.get('https://en.wikipedia.org/api/rest_v1/page/summary/{title.replace(' ', '_')}',headers=h); print(r.json().get('extract','')[:200])"
                             return ans, test
             except: pass
