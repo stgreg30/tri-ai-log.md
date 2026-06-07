@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NOUS — Emergent Brain</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Syncopate:wght@400;700&family=Jura:wght@400;500;600&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #020b0d;
+      --surface: rgba(0, 255, 198, 0.04);
+      --border: rgba(0, 255, 198, 0.14);
+      --glow: #00ffc6;
+      --glow-dim: rgba(0, 255, 198, 0.28);
+      --accent: #ff2d78;
+      --accent-dim: rgba(255, 45, 120, 0.25);
+      --text: #b8ddd6;
+      --text-dim: #3d6860;
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Jura', sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Neural canvas ── */
+    #neural-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      opacity: 0.45;
+    }
+
+    /* ── Shell ── */
+    .shell {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 16px 28px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(2, 11, 13, 0.85);
+      backdrop-filter: blur(14px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .brand { display: flex; align-items: center; gap: 14px; }
+
+    .brain-orb {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      border: 1.5px solid var(--glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 14px var(--glow-dim), inset 0 0 10px rgba(0,255,198,0.08);
+      animation: orb-breathe 2.8s ease-in-out infinite;
+    }
+    @keyframes orb-breathe {
+      0%,100% { box-shadow: 0 0 14px var(--glow-dim), inset 0 0 10px rgba(0,255,198,0.08); }
+      50%      { box-shadow: 0 0 28px rgba(0,255,198,0.45), inset 0 0 18px rgba(0,255,198,0.18); }
+    }
+
+    .brain-orb svg { width: 18px; height: 18px; fill: var(--glow); }
+
+    .brand-text .name {
+      font-family: 'Syncopate', sans-serif;
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: 0.18em;
+      color: var(--glow);
+      text-shadow: 0 0 22px var(--glow-dim);
+    }
+    .brand-text .sub {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      margin-top: 2px;
+    }
+
+    .hud { display: flex; align-items: center; gap: 22px; }
+
+    .hud-metric { text-align: right; }
+    .hud-metric .lbl {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.58rem;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .hud-metric .val {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.82rem;
+      color: var(--glow);
+      text-shadow: 0 0 8px var(--glow-dim);
+      transition: all 0.4s ease;
+    }
+
+    .hud-divider {
+      width: 1px;
+      height: 28px;
+      background: var(--border);
+    }
+
+    .status-pip {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--glow);
+      box-shadow: 0 0 8px var(--glow);
+      animation: pip-blink 1.8s ease-in-out infinite;
+    }
+    @keyframes pip-blink {
+      0%,100% { opacity: 1; }
+      50%      { opacity: 0.2; }
+    }
+
+    /* ── Messages ── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 28px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .messages::-webkit-scrollbar { width: 3px; }
+    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Empty state */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .empty-state .ghost {
+      font-family: 'Syncopate', sans-serif;
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 700;
+      color: var(--glow);
+      opacity: 0.08;
+      letter-spacing: 0.3em;
+      text-shadow: 0 0 60px var(--glow);
+      animation: ghost-pulse 3s ease-in-out infinite;
+    }
+    @keyframes ghost-pulse {
+      0%,100% { opacity: 0.08; }
+      50%      { opacity: 0.14; }
+    }
+    .empty-state .hint {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.68rem;
+      color: var(--text-dim);
+      letter-spacing: 0.14em;
+      opacity: 0.6;
+    }
+
+    /* Message rows */
+    .msg-row {
+      display: flex;
+      flex-direction: column;
+      max-width: 74%;
+      animation: msg-in 0.25s ease both;
+    }
+    @keyframes msg-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-row.user  { align-self: flex-end;  align-items: flex-end; }
+    .msg-row.brain { align-self: flex-start; align-items: flex-start; }
+
+    .msg-tag {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.58rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .msg-row.user  .msg-tag { color: var(--accent); }
+    .msg-row.brain .msg-tag { color: var(--glow); }
+
+    .msg-bubble {
+      padding: 12px 16px;
+      border-radius: 3px;
+      line-height: 1.65;
+      font-size: 0.9rem;
+      letter-spacing: 0.01em;
+    }
+    .msg-row.user  .msg-bubble {
+      background: rgba(255, 45, 120, 0.07);
+      border: 1px solid rgba(255, 45, 120, 0.22);
+      border-top-right-radius: 0;
+    }
+    .msg-row.brain .msg-bubble {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top-left-radius: 0;
+    }
+
+    /* Inline stats under brain message */
+    .msg-meta {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    .meta-item {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .meta-item .lbl { letter-spacing: 0.1em; }
+    .mini-bar {
+      width: 44px;
+      height: 3px;
+      background: rgba(0,255,198,0.12);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .mini-fill {
+      height: 100%;
+      background: var(--glow);
+      border-radius: 2px;
+      box-shadow: 0 0 6px var(--glow);
+      transition: width 0.6s ease;
+    }
+
+    /* Thinking indicator */
+    .thinking-row {
+      align-self: flex-start;
+      animation: msg-in 0.25s ease both;
+    }
+    .thinking-bubble {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      border-top-left-radius: 0;
+    }
+    .t-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--glow);
+      animation: t-bounce 1.2s ease-in-out infinite;
+    }
+    .t-dot:nth-child(2) { animation-delay: 0.18s; }
+    .t-dot:nth-child(3) { animation-delay: 0.36s; }
+    @keyframes t-bounce {
+      0%,80%,100% { opacity: 0.2; transform: scale(0.7); }
+      40%          { opacity: 1;   transform: scale(1.3); box-shadow: 0 0 6px var(--glow); }
+    }
+
+    /* Error bubble */
+    .err-bubble {
+      padding: 10px 14px;
+      border-radius: 3px;
+      border-top-left-radius: 0;
+      background: rgba(255,45,120,0.06);
+      border: 1px solid rgba(255,45,120,0.2);
+      color: rgba(255, 110, 140, 0.85);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.78rem;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Input area ── */
+    .input-area {
+      padding: 14px 28px 22px;
+      border-top: 1px solid var(--border);
+      background: rgba(2, 11, 13, 0.88);
+      backdrop-filter: blur(14px);
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .input-wrap { flex: 1; }
+
+    textarea#msg {
+      width: 100%;
+      background: rgba(0, 255, 198, 0.025);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 11px 14px;
+      color: var(--text);
+      font-family: 'Jura', sans-serif;
+      font-size: 0.88rem;
+      outline: none;
+      resize: none;
+      min-height: 44px;
+      max-height: 130px;
+      line-height: 1.5;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    textarea#msg::placeholder { color: var(--text-dim); font-size: 0.82rem; }
+    textarea#msg:focus {
+      border-color: rgba(0, 255, 198, 0.35);
+      box-shadow: 0 0 0 1px rgba(0,255,198,0.08), 0 0 24px rgba(0,255,198,0.04);
+    }
+
+    #send-btn {
+      background: transparent;
+      border: 1.5px solid var(--glow);
+      color: var(--glow);
+      font-family: 'Syncopate', sans-serif;
+      font-size: 0.55rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      padding: 0 20px;
+      height: 44px;
+      border-radius: 3px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+      box-shadow: 0 0 12px rgba(0,255,198,0.08);
+    }
+    #send-btn:hover:not(:disabled) {
+      background: rgba(0,255,198,0.07);
+      box-shadow: 0 0 22px rgba(0,255,198,0.2);
+    }
+    #send-btn:active:not(:disabled) { transform: scale(0.96); }
+    #send-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Bottom hint */
+    .input-hint {
+      text-align: center;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.56rem;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      padding-top: 8px;
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="neural-canvas"></canvas>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="brain-orb">
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2C9.5 2 7.5 3.5 6.5 5.5C5 5.5 3 7 3 9.5C3 11 4 12.5 5.5 13C5.2 13.5 5 14 5 14.5C5 16.5 6.5 18 8.5 18H9L9 20H15V18H15.5C17.5 18 19 16.5 19 14.5C19 14 18.8 13.5 18.5 13C20 12.5 21 11 21 9.5C21 7 19 5.5 17.5 5.5C16.5 3.5 14.5 2 12 2Z"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="name">NOUS</div>
+        <div class="sub">// emergent brain interface · v0.1</div>
+      </div>
+    </div>
+    <div class="hud">
+      <div class="hud-metric">
+        <div class="lbl">Neural Activity</div>
+        <div class="val" id="hud-activity">—</div>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="hud-metric">
+        <div class="lbl">Avg State</div>
+        <div class="val" id="hud-state">—</div>
+      </div>
+      <div class="hud-divider"></div>
+      <div class="status-pip"></div>
+    </div>
+  </header>
+
+  <!-- Messages -->
+  <div class="messages" id="messages">
+    <div class="empty-state" id="empty-state">
+      <div class="ghost">NOUS</div>
+      <div class="hint">// neural interface awaiting stimulus</div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="input-area">
+    <div class="input-wrap">
+      <textarea id="msg" placeholder="transmit a signal to the brain..." rows="1"></textarea>
+      <div class="input-hint">Enter to transmit &nbsp;·&nbsp; Shift+Enter for new line</div>
+    </div>
+    <button id="send-btn">Transmit</button>
+  </div>
+
+</div>
+
+<script>
+  /* ── Neural canvas ── */
+  const canvas  = document.getElementById('neural-canvas');
+  const ctx     = canvas.getContext('2d');
+  let nodes     = [];
+  let activity  = 0;   // 0–1 drives glow intensity
+
+  function resize() {
+    canvas.width  = window.innerWidth;
+    canvas.height = window.innerHeight;
+  }
+
+  function spawnNodes() {
+    nodes = [];
+    const n = Math.min(Math.floor(canvas.width * canvas.height / 16000), 55);
+    for (let i = 0; i < n; i++) nodes.push({
+      x:  Math.random() * canvas.width,
+      y:  Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.28,
+      vy: (Math.random() - 0.5) * 0.28,
+      r:  Math.random() * 1.8 + 0.8,
+      ph: Math.random() * Math.PI * 2
+    });
+  }
+
+  function drawNeural() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const MAX_DIST = 110 + activity * 70;
+
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      a.x  += a.vx;  a.y  += a.vy;
+      a.ph += 0.018;
+      if (a.x < 0 || a.x > canvas.width)  a.vx *= -1;
+      if (a.y < 0 || a.y > canvas.height) a.vy *= -1;
+
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b  = nodes[j];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d  = Math.sqrt(dx*dx + dy*dy);
+        if (d < MAX_DIST) {
+          const alpha = (1 - d / MAX_DIST) * (0.18 + activity * 0.5);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.strokeStyle = `rgba(0,255,198,${alpha})`;
+          ctx.lineWidth   = 0.5;
+          ctx.stroke();
+        }
+      }
+
+      const na = 0.35 + Math.sin(a.ph) * 0.25 + activity * 0.4;
+      const nr = a.r * (1 + activity * 0.6);
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, nr, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0,255,198,${Math.min(na, 1)})`;
+      ctx.fill();
+    }
+
+    activity *= 0.992;
+    requestAnimationFrame(drawNeural);
+  }
+
+  resize(); spawnNodes(); drawNeural();
+  window.addEventListener('resize', () => { resize(); spawnNodes(); });
+
+  /* ── UI helpers ── */
+  const msgsEl    = document.getElementById('messages');
+  const emptyEl   = document.getElementById('empty-state');
+  const msgInput  = document.getElementById('msg');
+  const sendBtn   = document.getElementById('send-btn');
+
+  function hideEmpty() { if (emptyEl) emptyEl.style.display = 'none'; }
+  function scrollBottom() { msgsEl.scrollTop = msgsEl.scrollHeight; }
+
+  function createRow(role, tagText) {
+    hideEmpty();
+    const row = document.createElement('div');
+    row.className = `msg-row ${role}`;
+    const tag = document.createElement('div');
+    tag.className = 'msg-tag';
+    tag.textContent = tagText;
+    row.appendChild(tag);
+    return row;
+  }
+
+  function appendUserMsg(text) {
+    const row  = createRow('user', '▷ you');
+    const bbl  = document.createElement('div');
+    bbl.className = 'msg-bubble';
+    bbl.textContent = text;
+    row.appendChild(bbl);
+    msgsEl.appendChild(row);
+    scrollBottom();
+  }
+
+  function appendBrainMsg(text, meta) {
+    const row = createRow('brain', '⬡ brain');
+    const bbl = document.createElement('div');
+    bbl.className = 'msg-bubble';
+    bbl.textContent = text;
+    row.appendChild(bbl);
+
+    if (meta) {
+      const pct = Math.min(Math.abs(meta.activity) * 100, 100);
+      const metaDiv = document.createElement('div');
+      metaDiv.className = 'msg-meta';
+      metaDiv.innerHTML = `
+        <div class="meta-item">
+          <span class="lbl">ACT</span>
+          <div class="mini-bar"><div class="mini-fill" style="width:${pct}%"></div></div>
+          <span>${meta.activity.toFixed(3)}</span>
+        </div>
+        <div class="meta-item">
+          <span class="lbl">STATE</span>
+          <span>${meta.avgState.toFixed(3)}</span>
+        </div>`;
+      row.appendChild(metaDiv);
+
+      document.getElementById('hud-activity').textContent = meta.activity.toFixed(3);
+      document.getElementById('hud-state').textContent    = meta.avgState.toFixed(3);
+      activity = Math.min(activity + Math.abs(meta.activity) * 0.7, 1);
+    }
+
+    msgsEl.appendChild(row);
+    scrollBottom();
+  }
+
+  function appendError(msg) {
+    hideEmpty();
+    const row = createRow('brain', '⬡ brain');
+    const bbl = document.createElement('div');
+    bbl.className = 'err-bubble';
+    bbl.textContent = `// signal lost — ${msg}`;
+    row.appendChild(bbl);
+    msgsEl.appendChild(row);
+    scrollBottom();
+  }
+
+  function showThinking() {
+    hideEmpty();
+    const wrap = document.createElement('div');
+    wrap.className = 'msg-row thinking-row';
+    wrap.id = 'thinking';
+    const tag  = document.createElement('div');
+    tag.className = 'msg-tag';
+    tag.style.color = 'var(--glow)';
+    tag.textContent = '⬡ brain';
+    const bbl = document.createElement('div');
+    bbl.className = 'thinking-bubble';
+    bbl.innerHTML = '<div class="t-dot"></div><div class="t-dot"></div><div class="t-dot"></div>';
+    wrap.appendChild(tag); wrap.appendChild(bbl);
+    msgsEl.appendChild(wrap);
+    scrollBottom();
+    return wrap;
+  }
+
+  /* ── Send ── */
+  async function send() {
+    const message = msgInput.value.trim();
+    if (!message) return;
+
+    sendBtn.disabled = true;
+    appendUserMsg(message);
+    msgInput.value = '';
+    msgInput.style.height = 'auto';
+    activity = Math.min(activity + 0.35, 1);
+
+    const thinkEl = showThinking();
+
+    try {
+      const res = await fetch('/chat', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      thinkEl.remove();
+      appendBrainMsg(data.reply, { activity: data.activity, avgState: data.avgState });
+    } catch (err) {
+      thinkEl.remove();
+      appendError(err.message);
+    } finally {
+      sendBtn.disabled = false;
+      msgInput.focus();
+    }
+  }
+
+  /* ── Textarea auto-resize + keyboard ── */
+  msgInput.addEventListener('input', function () {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 130) + 'px';
+  });
+
+  msgInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  sendBtn.addEventListener('click', send);
+  msgInput.focus();
+</script>
+
+</body>
+</html>
