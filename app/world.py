@@ -14,6 +14,16 @@ class WorldEngine:
                 try: return str(eval(expr, {"__builtins__":{}})), f"print({expr})"
                 except: pass
 
+        # --- SKILL 1: compound interest ---
+        if m := re.search(r'calculate (\d+(?:\.\d+)?) at (\d+(?:\.\d+)?)% for (\d+(?:\.\d+)?) years?', t):
+            p = float(m.group(1))
+            rate = float(m.group(2)) / 100
+            y = float(m.group(3))
+            result = p * (1 + rate) ** y
+            ans = f"{p:,.0f} at {m.group(2)}% for {y:g} years = {result:,.2f}"
+            test = f"p={p}; r={rate}; y={y}; print(f'{{p}} at {m.group(2)}% for {{y:g}} years = {{p*(1+r)**y:,.2f}}')"
+            return ans, test
+
         # --- string ops ---
         if m := re.search(r'reverse (.+)', t):
             s = m.group(1).strip(); safe = s.replace("'", "\\'")
@@ -28,28 +38,23 @@ class WorldEngine:
             s = m.group(1).strip(); safe = s.replace("'", "\\'")
             return str(len(s.replace(' ',''))), f"print(len('{safe}'.replace(' ','')))"
 
-        # --- IMPROVED: clean summarizer ---
+        # --- clean summarizer ---
         if m := re.search(r'summarize (https?://\S+)', t):
             url = m.group(1)
             try:
                 r = httpx.get(url, headers=HEADERS, timeout=10.0, follow_redirects=True)
                 html = r.text
-                # remove scripts, styles, comments
                 html = re.sub(r'<script.*?</script>', ' ', html, flags=re.DOTALL|re.IGNORECASE)
                 html = re.sub(r'<style.*?</style>', ' ', html, flags=re.DOTALL|re.IGNORECASE)
                 html = re.sub(r'<!--.*?-->', ' ', html, flags=re.DOTALL)
-                # strip tags
                 text_only = re.sub(r'<[^>]+>', ' ', html)
-                # clean whitespace
                 text_only = ' '.join(text_only.split())
-                # get first 3 real sentences
                 sentences = re.split(r'(?<=[.!?])\s+', text_only)
                 summary = ' '.join(sentences[:3])[:400]
                 if not summary: summary = text_only[:300]
-
                 test = f"r=httpx.get('{url}',headers={{'User-Agent':'Mozilla/5.0'}}); h=r.text; h=__import__('re').sub(r'<script.*?</script>',' ',h,flags=__import__('re').DOTALL|__import__('re').IGNORECASE); h=__import__('re').sub(r'<style.*?</style>',' ',h,flags=__import__('re').DOTALL|__import__('re').IGNORECASE); t=__import__('re').sub(r'<[^>]+>',' ',h); t=' '.join(t.split()); s=__import__('re').split(r'(?<=[.!?])\\s+',t); print(' '.join(s[:3])[:400])"
                 return f"Summary: {summary}", test
-            except Exception as e:
+            except Exception:
                 return f"Failed to fetch {url}", "# fetch failed"
 
         # --- web (Wikipedia) ---
@@ -80,7 +85,6 @@ class WorldEngine:
         safe = {'print':print,'range':range,'len':len,'sum':sum,'min':min,'max':max,'abs':abs,'round':round,'str':str,'int':int,'float':float,'list':list,'dict':dict}
         try:
             with contextlib.redirect_stdout(out):
-                # allow __import__ for the test code above
                 exec(text, {'__builtins__': {**safe, '__import__': __import__}, 'httpx':httpx,'re':re}, {})
             return out.getvalue() or "code ran with no output"
         except:
