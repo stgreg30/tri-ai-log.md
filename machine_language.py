@@ -1,81 +1,54 @@
-"""Pure machine language definitions - No English allowed here"""
+"""The Machine Language - What the Factory AI speaks"""
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
-import hashlib
-import time
-from enum import IntEnum
+from typing import Dict, Any
+import hashlib, time
 
-class Opcode(IntEnum):
-    """Machine operation codes - The ONLY language the Factory speaks"""
-    # System
-    INIT = 0x01
-    SHUTDOWN = 0x02
-    PING = 0x03
-    
-    # Agent lifecycle
-    SPAWN = 0x10
-    TERMINATE = 0x11
-    CLONE = 0x12
-    
-    # Task management
-    ASSIGN_TASK = 0x20
-    CANCEL_TASK = 0x21
-    
-    # Queries
-    LIST_AGENTS = 0x30
-    QUERY_AGENT = 0x31
-    QUERY_RESULT = 0x32
-    
-    # Responses
-    ACK = 0x40
-    NACK = 0x41
-    DATA_RESPONSE = 0x42
-    STATUS_RESPONSE = 0x43
-    ERROR_RESPONSE = 0x44
+# Machine opcodes
+class OP:
+    INIT = "INIT"
+    PING = "PING"
+    SPAWN = "SPAWN"
+    KILL = "KILL"
+    CLONE = "CLONE"
+    TASK = "TASK"
+    STOP = "STOP"
+    LIST = "LIST"
+    PEEK = "PEEK"
+    RESULT = "RESULT"
+    OK = "OK"
+    ERR = "ERR"
+    DATA = "DATA"
+    INFO = "INFO"
+    PLAN = "PLAN"      # Factory shares its plan
+    THINK = "THINK"    # Factory is thinking
+    LEARN = "LEARN"    # Factory learned something
 
-class AgentType(IntEnum):
-    """Types of sub-agents the Factory can create"""
-    HTTP_FETCHER = 0x50      # Makes HTTP requests
-    CODE_EXECUTOR = 0x51     # Runs Python code in sandbox
-    DATA_PROCESSOR = 0x52    # Processes/transforms data
-    FILE_HANDLER = 0x53      # File operations
-    SCHEDULER = 0x54         # Timed task execution
-    WEB_SCRAPER = 0x55       # Scrapes web pages
-    CALCULATOR = 0x56        # Math operations
-    TEXT_PROCESSOR = 0x57    # Text manipulation
+# Agent types
+class TYPE:
+    HTTP = "HTTP"
+    CODE = "CODE"
+    SCRAPE = "SCRAPE"
+    CALC = "CALC"
+    TIMER = "TIMER"
+    DATA = "DATA"
 
 @dataclass
-class MachineInstruction:
-    """Atomic machine instruction packet"""
-    opcode: Opcode
-    params: Dict[str, Any] = field(default_factory=dict)
-    instruction_id: str = ""
-    parent_id: str = ""
-    timestamp: float = 0.0
+class Packet:
+    """A machine language packet"""
+    op: str
+    payload: Dict = field(default_factory=dict)
+    id: str = ""
+    ts: float = 0.0
     
     def __post_init__(self):
-        if not self.instruction_id:
-            raw = f"{time.time()}{self.opcode}{hashlib.md5(str(self.params).encode()).hexdigest()}"
-            self.instruction_id = hashlib.sha256(raw.encode()).hexdigest()[:12]
-        if not self.timestamp:
-            self.timestamp = time.time()
+        if not self.id:
+            self.id = hashlib.md5(f"{time.time()}{self.op}".encode()).hexdigest()[:8]
+        if not self.ts:
+            self.ts = time.time()
     
-    def to_dict(self) -> Dict:
-        return {
-            "opcode": int(self.opcode),
-            "opcode_name": self.opcode.name,
-            "params": self.params,
-            "id": self.instruction_id,
-            "parent": self.parent_id,
-            "timestamp": self.timestamp
-        }
+    def to_dict(self):
+        return {"op": self.op, "payload": self.payload, "id": self.id, "ts": self.ts}
     
     @classmethod
-    def from_dict(cls, data: Dict) -> 'MachineInstruction':
-        return cls(
-            opcode=Opcode(data["opcode"]),
-            params=data.get("params", {}),
-            instruction_id=data.get("id", ""),
-            parent_id=data.get("parent", ""),
-            timestamp=data.get("timestamp", 0.0)
-        )
+    def from_dict(cls, d):
+        return cls(op=d["op"], payload=d.get("payload", {}), id=d.get("id", ""), ts=d.get("ts", 0))

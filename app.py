@@ -1,88 +1,107 @@
-"""Flask web server for Render deployment"""
+"""Flask Web Server - The interface between you and the AI agents"""
 from flask import Flask, render_template, request, jsonify, session
-import uuid
-import time
-from factory import Factory
-from translator import Translator
+import uuid, time
+from memory import Memory
+from factory_agent import FactoryAgent
+from translator_agent import TranslatorAgent
 
 app = Flask(__name__)
-app.secret_key = "factory-machine-language-secret-key-change-in-production"
+app.secret_key = "change-this-secret-in-production"
 
-# Store factories per session (in production, use Redis)
+# Shared memory (Supabase)
+memory = Memory()
+
+# Per-session agents
 factories = {}
 translators = {}
 
-def get_or_create_factory(session_id: str):
-    if session_id not in factories:
-        factories[session_id] = Factory()
-        translators[session_id] = Translator()
-        # Auto-init
-        init_instr = translators[session_id].english_to_machine("init")
-        factories[session_id].receive_instruction(init_instr)
-    return factories[session_id], translators[session_id]
+def get_sid():
+    if 'sid' not in session:
+        session['sid'] = str(uuid.uuid4())
+    return session['sid']
+
+def get_agents(sid: str):
+    if sid not in factories:
+        factories[sid] = FactoryAgent(memory)
+        translators[sid] = TranslatorAgent(memory)
+    return factories[sid], translators[sid]
 
 @app.route('/')
 def index():
-    if 'session_id' not in session:
-        session['session_id'] = str(uuid.uuid4())
-        session['chat_history'] = []
+    get_sid()
     return render_template('index.html')
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    session_id = session.get('session_id', str(uuid.uuid4()))
-    session['session_id'] = session_id
+    sid = get_sid()
+    factory, translator = get_agents(sid)
     
     data = request.json
-    user_message = data.get('message', '').strip()
+    english = data.get('message', '').strip()
     
-    if not user_message:
-        return jsonify({"error": "Empty message"}), 400
+    if not english:
+        return jsonify({"error": "empty"}), 400
     
-    factory, translator = get_or_create_factory(session_id)
+    # FLOW:
+    # 1. Translator: English → Machine Packet
+    pkt = translator.translate_to_machine(english)
     
-    # Full translation cycle
-    response = translator.translate_roundtrip(user_message, factory)
+    # 2. Factory: Machine Packet → Machine Response
+    response_pkt = factory.receive(pkt)
     
-    # Store in history
-    history = session.get('chat_history', [])
-    history.append({
-        "user": user_message,
-        "system": response,
-        "timestamp": time.time()
+    # 3. Translator: Machine Response → English
+    english_response = translator.translate_to_english(response_pkt)
+    
+    # Save message to memory
+    memory.save_message({
+        "english_in": english,
+        "machine_sent": pkt.to_dict(),
+        "machine_received": response_pkt.to_dict(),
+        "english_out": english_response,
+        "ts": time.time()
     })
-    session['chat_history'] = history[-50:]  # Keep last 50 messages
-    
-    # Get agent list for display
-    list_instr = translator.english_to_machine("list agents")
-    list_response = factory.receive_instruction(list_instr)
-    agents_data = list_response.params.get("agents", [])
     
     return jsonify({
-        "response": response,
-        "agents": agents_data,
-        "agent_count": len(agents_data)
+        "response": english_response,
+        "factory_thoughts": factory.get_thoughts(10),
+        "agent_count": len(factory.agents),
+        "debug": {
+            "op_sent": pkt.op,
+            "op_received": response_pkt.op
+        }
     })
 
+@app.route('/api/thoughts', methods=['GET'])
+def thoughts():
+    sid = get_sid()
+    if sid in factories:
+        return jsonify({"thoughts": factories[sid].get_thoughts(30)})
+    return jsonify({"thoughts": []})
+
 @app.route('/api/agents', methods=['GET'])
-def get_agents():
-    session_id = session.get('session_id', '')
-    if session_id in factories:
-        factory = factories[session_id]
-        translator = translators[session_id]
-        list_instr = translator.english_to_machine("list agents")
-        list_response = factory.receive_instruction(list_instr)
-        return jsonify(list_response.params)
-    return jsonify({"agents": [], "total_count": 0})
+def agents():
+    sid = get_sid()
+    if sid in factories:
+        factory = factories[sid]
+        agents_data = []
+        for aid, agent in factory.agents.items():
+            agents_data.append({
+                "id": aid,
+                "type": agent.type,
+                "status": agent.status,
+                "runs": agent.runs,
+                "caps": agent.caps()
+            })
+        return jsonify({"agents": agents_data})
+    return jsonify({"agents": []})
 
 @app.route('/api/reset', methods=['POST'])
 def reset():
-    session_id = session.get('session_id', '')
-    if session_id in factories:
-        del factories[session_id]
-        del translators[session_id]
-    session['chat_history'] = []
-    return jsonify({"status": "reset_complete"})
+    sid = get_sid()
+    if sid in factories:
+        del factories[sid]
+        del translators[sid]
+    return jsonify({"ok": True})
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
