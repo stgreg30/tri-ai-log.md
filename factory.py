@@ -72,22 +72,27 @@ class ResearchFactory:
                             "https://en.wikipedia.org/w/api.php",
                             params={
                                 "action": "query",
-                                "prop": "extracts",
-                                "exintro": 1,
-                                "explaintext": 1,
-                                "titles": page_title,
-                                "format": "json"
-                            }
-                        )
-                        extract_data = extract_response.json()
-                        pages = extract_data.get("query", {}).get("pages", {})
-                        
-                        for page in pages.values():
-                            if page.get("extract"):
-                                all_results.append(page["extract"])
-                                sources.append(f"https://en.wikipedia.org/wiki/{page_title}")
-                except:
-                    pass
+                                @app.on_event("startup")
+async def startup():
+    print("UAI Brain starting...")
+    os.makedirs("neurons", exist_ok=True)
+    os.makedirs("agents", exist_ok=True)
+    
+    existing = []
+    for d in ["neurons", "agents"]:
+        if os.path.exists(d):
+            existing.extend([f for f in os.listdir(d) if f.endswith(".py")])
+    
+    if len(existing) <= 1:
+        try:
+            r1 = await factory._build_knowledge_agent("init", {"summary": "Initial setup"})
+            print(f"Created: {r1.get('agent_name')}")
+            r2 = await factory._build_smart_greeting_agent("hello", {"summary": ""})
+            print(f"Created: {r2.get('agent_name')}")
+        except Exception as e:
+            print(f"Init error: {e}")
+    
+    print("UAI Brain ready!")
             
             summary = " | ".join(all_results[:3]) if all_results else f"No results found for: {task}"
             
