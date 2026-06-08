@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏭 AI Factory - Machine Language Controller</title>
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --panel-bg: #12121a;
+            --border: #1e1e30;
+            --text: #e0e0e0;
+            --accent: #00ff88;
+            --accent2: #6c5ce7;
+            --danger: #ff4757;
+            --warning: #ffa502;
+            --code-bg: #0d1117;
+            --user-bg: #1a1a2e;
+            --system-bg: #0d1117;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Courier New', monospace;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background: var(--panel-bg);
+            border-bottom: 2px solid var(--accent);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .header h1 {
+            font-size: 1.2em;
+            color: var(--accent);
+            letter-spacing: 2px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: var(--panel-bg);
+            border-right: 1px solid var(--border);
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .sidebar h2 {
+            color: var(--accent2);
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+        }
+        
+        .agent-card {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 0.8em;
+        }
+        
+        .agent-card .agent-id {
+            color: var(--accent);
+            font-weight: bold;
+        }
+        
+        .agent-card .agent-type {
+            color: var(--accent2);
+            font-size: 0.9em;
+        }
+        
+        .agent-card .agent-status {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            background: #1a3a1a;
+            color: var(--accent);
+        }
+        
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .message {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            line-height: 1.5;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        .message.user {
+            align-self: flex-end;
+            background: var(--user-bg);
+            border: 1px solid var(--accent2);
+            border-bottom-right-radius: 2px;
+        }
+        
+        .message.system {
+            align-self: flex-start;
+            background: var(--system-bg);
+            border: 1px solid var(--accent);
+            border-bottom-left-radius: 2px;
+        }
+        
+        .message .label {
+            font-size: 0.7em;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+        }
+        
+        .message.user .label { color: var(--accent2); }
+        .message.system .label { color: var(--accent); }
+        
+        .input-area {
+            padding: 15px 20px;
+            background: var(--panel-bg);
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 10px;
+        }
+        
+        .input-area input {
+            flex: 1;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        .input-area input:focus {
+            border-color: var(--accent);
+        }
+        
+        .input-area button {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 0.95em;
+            transition: opacity 0.3s;
+        }
+        
+        .input-area button:hover {
+            opacity: 0.8;
+        }
+        
+        .input-area button.reset {
+            background: var(--danger);
+            color: white;
+        }
+        
+        .quick-commands {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 8px 20px;
+            background: var(--panel-bg);
+        }
+        
+        .quick-cmd {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            color: var(--accent2);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75em;
+            font-family: 'Courier New', monospace;
+            transition: all 0.3s;
+        }
+        
+        .quick-cmd:hover {
+            border-color: var(--accent2);
+            background: #1a1a3e;
+        }
+        
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+        
+        .typing-indicator {
+            color: var(--accent);
+            animation: blink 1s infinite;
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="status-dot" id="statusDot"></div>
+        <h1>🏭 AI FACTORY</h1>
+        <span style="color: #666; font-size: 0.8em;">Machine Language Controller v1.0</span>
+        <span style="margin-left: auto; color: var(--accent2);" id="agentCount">0 agents</span>
+    </div>
+    
+    <div class="main-container">
+        <div class="sidebar" id="sidebar">
+            <h2>🤖 Active Agents</h2>
+            <div id="agentList">
+                <div style="color: #666; font-size: 0.8em;">No agents spawned yet</div>
+            </div>
+        </div>
+        
+        <div class="chat-area">
+            <div class="messages" id="messages">
+                <div class="message system">
+                    <div class="label">🏭 SYSTEM</div>
+                    Factory initialized. Machine language core ready.<br>
+                    Speak in English - I will translate to machine code.<br>
+                    Try: "create a http agent" or "list agents"
+                </div>
+            </div>
+            
+            <div class="quick-commands">
+                <span class="quick-cmd" onclick="sendQuick('create a calculator agent')">+ Calculator</span>
+                <span class="quick-cmd" onclick="sendQuick('create a http fetcher agent')">+ HTTP Fetcher</span>
+                <span class="quick-cmd" onclick="sendQuick('create a code executor agent')">+ Code Executor</span>
+                <span class="quick-cmd" onclick="sendQuick('create a web scraper agent')">+ Web Scraper</span>
+                <span class="quick-cmd" onclick="sendQuick('create a data processor agent')">+ Data Processor</span>
+                <span class="quick-cmd" onclick="sendQuick('create a scheduler agent')">+ Scheduler</span>
+                <span class="quick-cmd" onclick="sendQuick('list agents')">📋 List All</span>
+                <span class="quick-cmd" onclick="sendQuick('ping')">🏥 Health Check</span>
+            </div>
+            
+            <div class="input-area">
+                <input type="text" id="userInput" placeholder="Type command in English..." 
+                       onkeypress="if(event.key==='Enter') sendMessage()" autofocus>
+                <button onclick="sendMessage()">SEND</button>
+                <button class="reset" onclick="resetSystem()">RESET</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let messageCount = 0;
+        
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const message = input.value.trim();
+            if (!message) return;
+            
+            input.value = '';
+            addMessage(message, 'user');
+            showTyping();
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({message: message})
+                });
+                
+                const data = await response.json();
+                hideTyping();
+                addMessage(data.response, 'system');
+                updateAgents(data.agents || []);
+                document.getElementById('agentCount').textContent = 
+                    `${data.agent_count || 0} agents`;
+            } catch (error) {
+                hideTyping();
+                addMessage('Error: Could not reach factory', 'system');
+            }
+        }
+        
+        function sendQuick(message) {
+            document.getElementById('userInput').value = message;
+            sendMessage();
+        }
+        
+        function addMessage(text, type) {
+            messageCount++;
+            const messagesDiv = document.getElementById('messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${type}`;
+            msgDiv.innerHTML = `
+                <div class="label">${type === 'user' ? '👤 YOU' : '🏭 SYSTEM'}</div>
+                ${escapeHtml(text)}
+            `;
+            messagesDiv.appendChild(msgDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function showTyping() {
+            const messagesDiv = document.getElementById('messages');
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'message system';
+            typingDiv.id = 'typingIndicator';
+            typingDiv.innerHTML = '<span class="typing-indicator">▊ Translating to machine code...</span>';
+            messagesDiv.appendChild(typingDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function hideTyping() {
+            const typingDiv = document.getElementById('typingIndicator');
+            if (typingDiv) typingDiv.remove();
+        }
+        
+        function updateAgents(agents) {
+            const agentList = document.getElementById('agentList');
+            if (!agents || agents.length === 0) {
+                agentList.innerHTML = '<div style="color: #666; font-size: 0.8em;">No agents spawned yet</div>';
+                return;
+            }
+            
+            agentList.innerHTML = agents.map(a => `
+                <div class="agent-card">
+                    <div class="agent-id">🤖 ${a.agent_id}</div>
+                    <div class="agent-type">Type: ${a.type || 'unknown'}</div>
+                    <span class="agent-status">${a.status || '?'}</span>
+                    ${a.capabilities ? `<div style="font-size:0.7em;color:#666;margin-top:5px;">${a.capabilities.join(', ')}</div>` : ''}
+                </div>
+            `).join('');
+        }
+        
+        async function resetSystem() {
+            await fetch('/api/reset', {method: 'POST'});
+            document.getElementById('messages').innerHTML = '';
+            document.getElementById('agentList').innerHTML = '<div style="color: #666;">No agents spawned yet</div>';
+            document.getElementById('agentCount').textContent = '0 agents';
+            addMessage('Factory initialized. Machine language core ready.\nSpeak in English - I will translate to machine code.', 'system');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
