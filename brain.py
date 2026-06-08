@@ -28,7 +28,7 @@ class BrainSession:
         self.user_id = user_id
         self.task = None
         self.attempt = 0
-        self.max_attempts = 2
+        self.max_attempts = 3  # More attempts
         self.status = "idle"
         self.stop_requested = False
         self.help_info = None
@@ -38,6 +38,7 @@ async def process_task(session, task):
     session.task = task
     session.attempt = 0
     
+    # Check memory
     cached = await memory.find_solution(task, session.user_id)
     if cached:
         yield json.dumps({"attempt": 1, "status": "success", "message": "Found in memory", "answer": cached["answer"], "neuron_used": cached["neuron_name"], "from_memory": True}) + "\n"
@@ -45,49 +46,57 @@ async def process_task(session, task):
     
     while session.attempt <= session.max_attempts:
         if session.stop_requested:
-            yield json.dumps({"attempt": session.attempt, "status": "stopped", "message": "Stopped"}) + "\n"
+            yield json.dumps({"attempt": session.attempt, "status": "stopped", "message": "Stopped by user"}) + "\n"
             return
             
         session.attempt += 1
         session.status = "processing"
         
-        yield json.dumps({"attempt": session.attempt, "status": "processing", "message": f"Processing: {task} (Attempt {session.attempt}/{session.max_attempts})"}) + "\n"
+        yield json.dumps({"attempt": session.attempt, "status": "processing", "message": f"Thinking about: {task} (Attempt {session.attempt}/{session.max_attempts})"}) + "\n"
         
         try:
+            # Try to execute
             result = await factory.execute_task({"text": task, "help_info": session.help_info, "user_id": session.user_id})
             
             if result.get("success"):
                 await memory.store_success(task=task, user_id=session.user_id, neuron_name=result.get("neuron_used", "unknown"), answer=result["answer"])
-                yield json.dumps({"attempt": session.attempt, "status": "success", "message": "Done!", "answer": result["answer"], "neuron_used": result.get("neuron_used")}) + "\n"
+                yield json.dumps({"attempt": session.attempt, "status": "success", "message": "Task completed!", "answer": result["answer"], "neuron_used": result.get("neuron_used")}) + "\n"
                 return
             else:
-                error = result.get("error", "Unknown error")
-                yield json.dumps({"attempt": session.attempt, "status": "failed", "message": f"Failed: {error}", "error": error}) + "\n"
+                # FAILED - start the visible research loop
+                error = result.get("error", "I don't know how to do this yet")
+                yield json.dumps({"attempt": session.attempt, "status": "failed", "message": f"I couldn't do that yet: {error}", "error": error}) + "\n"
                 
-                if session.attempt <= session.max_attempts:
-                    yield json.dumps({"attempt": session.attempt, "status": "researching", "message": "Researching..."}) + "\n"
-                    research = await factory.research_failure(error, task)
-                    yield json.dumps({"attempt": session.attempt, "status": "researching", "message": "Research done", "research_findings": research.get("summary", "")[:200]}) + "\n"
+                # RESEARCH
+                yield json.dumps({"attempt": session.attempt, "status": "researching", "message": f"Searching the web to learn about: {task}"}) + "\n"
+                research = await factory.research_failure(error, task)
+                
+                if research.get("summary"):
+                    yield json.dumps({"attempt": session.attempt, "status": "researching", "message": "I found information online", "research_findings": research.get("summary", "")[:300]}) + "\n"
+                
+                # BUILD
+                yield json.dumps({"attempt": session.attempt, "status": "building", "message": "Building a new AI agent to handle this..."}) + "\n"
+                build_result = await factory.build_fix(error, research, task)
+                
+                if build_result.get("success"):
+                    session.current_neuron = build_result.get("agent_name", build_result.get("neuron_name"))
+                    yield json.dumps({"attempt": session.attempt, "status": "building", "message": f"New agent created: {session.current_neuron}", "neuron_built": session.current_neuron}) + "\n"
+                    await memory.store_learning(error=error, task=task, research=research, neuron_name=session.current_neuron, success=True)
                     
-                    yield json.dumps({"attempt": session.attempt, "status": "building", "message": "Building AI agent..."}) + "\n"
-                    build_result = await factory.build_fix(error, research, task)
+                    # RETRY
+                    yield json.dumps({"attempt": session.attempt, "status": "retrying", "message": "Retrying with the new agent..."}) + "\n"
+                else:
+                    yield json.dumps({"attempt": session.attempt, "status": "failed", "message": f"Could not build agent: {build_result.get('error')}", "error": build_result.get("error")}) + "\n"
                     
-                    if build_result.get("success"):
-                        session.current_neuron = build_result.get("agent_name", build_result.get("neuron_name"))
-                        yield json.dumps({"attempt": session.attempt, "status": "building", "message": f"Agent built: {session.current_neuron}", "neuron_built": session.current_neuron}) + "\n"
-                        await memory.store_learning(error=error, task=task, research=research, neuron_name=session.current_neuron, success=False)
-                        yield json.dumps({"attempt": session.attempt, "status": "retrying", "message": "Retrying..."}) + "\n"
-                    else:
-                        yield json.dumps({"attempt": session.attempt, "status": "failed", "message": "Build failed", "error": build_result.get("error")}) + "\n"
-                        return
         except Exception as e:
-            yield json.dumps({"attempt": session.attempt, "status": "failed", "message": f"Error: {str(e)}", "error": str(e)}) + "\n"
-            if session.attempt <= session.max_attempts:
+            yield json.dumps({"attempt": session.attempt, "status": "failed", "message": f"Something went wrong: {str(e)}", "error": str(e)}) + "\n"
+            if session.attempt < session.max_attempts:
                 await asyncio.sleep(1)
+                yield json.dumps({"attempt": session.attempt, "status": "retrying", "message": "Trying a different approach..."}) + "\n"
                 continue
             return
     
-    yield json.dumps({"attempt": session.attempt, "status": "failed", "message": "Max attempts reached"}) + "\n"
+    yield json.dumps({"attempt": session.attempt, "status": "failed", "message": f"I tried {session.max_attempts} times but couldn't figure this out yet. Can you help me understand better?"}) + "\n"
 
 @app.on_event("startup")
 async def startup():
@@ -102,9 +111,9 @@ async def startup():
     
     if len(existing) <= 1:
         try:
-            r1 = await factory._build_universal_agent("init", {})
+            r1 = await factory._build_knowledge_agent("init", {"summary": "Initial setup"})
             print(f"Created: {r1.get('agent_name')}")
-            r2 = await factory._build_research_agent("search", {})
+            r2 = await factory._build_greeting_agent("hello", {"summary": ""})
             print(f"Created: {r2.get('agent_name')}")
         except Exception as e:
             print(f"Init error: {e}")
@@ -189,11 +198,11 @@ async def root():
     </style>
 </head>
 <body>
-    <div id="header"><h1>UAI - Self-Evolving Brain</h1><p>Auto-research | Self-building AI agents</p></div>
+    <div id="header"><h1>UAI - Self-Evolving Brain</h1><p>Researches anything | Builds agents | Never gives up</p></div>
     <div class="info-bar"><span>Status: <span id="brainStatus">Ready</span></span><span>Agents: <span id="agentCount">0</span></span></div>
     <div id="log"></div>
     <div id="controls">
-        <input type="text" id="input" placeholder="Ask anything..." />
+        <input type="text" id="input" placeholder="Ask me anything - I'll figure it out..." />
         <button onclick="send()" id="sendBtn">Send</button>
         <button class="stop" onclick="stop()">Stop</button>
         <button class="help" onclick="help()">Help</button>
@@ -225,7 +234,7 @@ async def root():
             const text=inp.value.trim();
             if(!text)return;
             inp.value='';inp.disabled=true;btn.disabled=true;
-            document.getElementById('brainStatus').textContent='Processing...';
+            document.getElementById('brainStatus').textContent='Thinking...';
             addLog({status:'processing',message:'You: '+text});
             try{
                 controller=new AbortController();
@@ -261,7 +270,7 @@ async def root():
         
         document.getElementById('input').addEventListener('keypress',e=>{if(e.key==='Enter')send()});
         document.getElementById('input').focus();
-        addLog({status:'success',message:'UAI Brain ready! Ask me anything!'});
+        addLog({status:'success',message:'UAI Brain ready! I can research anything and build new agents to help you.'});
     </script>
 </body>
 </html>"""
