@@ -22,15 +22,12 @@ class Memory:
     
     # ========== TRANSLATOR MEMORY ==========
     def save_translation_pair(self, english: str, machine: Dict, success: bool):
-        """Translator learns from each translation"""
         if not self.client:
             self.local[f"trans_{len(self.local)}"] = {"en": english, "ml": machine, "ok": success}
             return
         try:
             self.client.table("translations").insert({
-                "english": english,
-                "machine": machine,
-                "success": success
+                "english": english, "machine": machine, "success": success
             }).execute()
         except: pass
     
@@ -42,9 +39,27 @@ class Memory:
             return r.data or []
         except: return []
     
+    # ========== TRAINING DATA ==========
+    def save_training(self, data: Dict):
+        if not self.client:
+            key = f"train_{len(self.local)}"
+            self.local[key] = data
+            return
+        try:
+            self.client.table("training").insert(data).execute()
+        except: pass
+    
+    def get_training(self, limit: int = 200) -> List[Dict]:
+        if not self.client:
+            train = [v for k, v in self.local.items() if k.startswith("train_")]
+            return train[-limit:]
+        try:
+            r = self.client.table("training").select("*").order("created_at", desc=False).limit(limit).execute()
+            return r.data or []
+        except: return []
+    
     # ========== FACTORY BRAIN MEMORY ==========
     def save_decision(self, decision: Dict):
-        """Factory records its decisions to learn from"""
         if not self.client:
             self.local[f"dec_{len(self.local)}"] = decision
             return
@@ -71,7 +86,8 @@ class Memory:
                 self.client.table("agents").update(data).eq("id", agent_id).execute()
             else:
                 self.client.table("agents").insert({"id": agent_id, **data}).execute()
-        except: pass
+        except Exception as e:
+            print(f"Save agent error: {e}")
     
     def get_agent(self, agent_id: str) -> Optional[Dict]:
         if not self.client:
@@ -85,7 +101,7 @@ class Memory:
         if not self.client:
             return [v for k, v in self.local.items() if k.startswith("agent_")]
         try:
-            r = self.client.table("agents").select("*").order("created_at", desc=False).execute()
+            r = self.client.table("agents").select("*").order("created", desc=False).execute()
             return r.data or []
         except: return []
     
