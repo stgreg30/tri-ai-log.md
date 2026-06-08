@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+venv/
+neurons/*.py
+!neurons/__init__.py
+*.log
