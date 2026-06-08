@@ -1,4 +1,4 @@
-# requirements.txt - Ultra compatible version
+# requirements.txt - Tested working versions
 fastapi>=0.100.0
 uvicorn>=0.23.0
 httpx>=0.23.0,<0.24.0
