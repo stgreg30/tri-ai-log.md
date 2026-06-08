@@ -2,6 +2,6 @@ __pycache__/
 *.pyc
 .env
 venv/
-neurons/*.py
-!neurons/__init__.py
+neurons/
+agents/
 *.log
